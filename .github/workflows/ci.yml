@@ -1,10 +1,14 @@
 name: CI / Build & Test
 
 on:
+  # Phase 2: the old trigger only ran CI for pushes/PRs to main,
+  # so a phase branch (and a PR chained onto another phase branch,
+  # the Lubric pattern) never got a CI verdict at all. Pushes to
+  # main and phase-* branches run, and every PR runs regardless
+  # of its base branch.
   push:
-    branches: [ main ]
+    branches: [ main, 'phase-*' ]
   pull_request:
-    branches: [ main ]
 
 jobs:
   build:
@@ -54,13 +58,23 @@ jobs:
         working-directory: ./frontend
         run: npm ci
 
-      - name: Lint backend
+      # Phase 2: the old "Lint" steps were not lint at all — they
+      # ran `npm ls`, which only lists installed packages. Renamed
+      # honestly; the real gate is the Test backend step below.
+      - name: Verify backend dependencies
         working-directory: ./backend
         run: npm ls 2>&1 | tail -5 || true
 
-      - name: Lint frontend
+      - name: Verify frontend dependencies
         working-directory: ./frontend
         run: npm ls 2>&1 | tail -5 || true
+
+      # Phase 2: real test gate. node:test, no new dependency.
+      # Runs BEFORE the Docker build, so a failing unit test stops
+      # the run instead of a broken image being built and started.
+      - name: Test backend
+        working-directory: ./backend
+        run: npm test
 
       - name: Build Docker images
         run: docker compose build

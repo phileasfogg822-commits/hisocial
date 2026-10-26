@@ -172,6 +172,24 @@ change to app behaviour except the one duplicate-route removal below
   `gen_random_uuid()` — that fallback is NOT applied yet,
   because it would change every existing table's default.
 
+## 1.9 CI GREEN on the fixed head — Phase 1's proof
+
+- Run `40406979960` on head `c93372b` completed with
+  conclusion `success`. Every step succeeded, including
+  `Wait for services to be ready` — i.e. the backend passed
+  the strict `/health` check on Docker Postgres with the
+  `uuid-ossp` fix, and the frontend compiled. This is the
+  live proof that `backend/init.sql`'s core tables and the
+  `runMigrations()` base-table creation both work on a fresh
+  Docker database.
+- Phase 1 is therefore ACCEPTED on `c93372b` for its scope:
+  lockfiles, CI cache fix, `init.sql`, Twitter dependency,
+  LinkedIn callback dedup, and the three startup fixes
+  (base tables in `runMigrations()`, sequential startup,
+  retried health check, `uuid-ossp`). The gate-doc update
+  itself is the only change after this head, and its CI run
+  must also go green before the phase is called fully closed.
+
 ## NOT proven yet — honest limits
 
 - CI on this branch is pending at push time. Phase 1 is NOT

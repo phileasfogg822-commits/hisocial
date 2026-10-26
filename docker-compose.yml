@@ -1,0 +1,138 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: socialhub_redis
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${REDIS_HOST_PORT:-6380}:6379"
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: socialhub_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: socialhub
+      POSTGRES_USER: socialhub
+      POSTGRES_PASSWORD: socialhub_secret
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5433}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U socialhub"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: ./backend
+    container_name: socialhub_backend
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://socialhub:socialhub_secret@postgres:5432/socialhub}
+      JWT_SECRET: ${JWT_SECRET:-change_this_jwt_secret}
+      SESSION_SECRET: ${SESSION_SECRET:-change_this_session_secret}
+      APP_LOGIN_USERNAME: ${APP_LOGIN_USERNAME:-admin}
+      APP_LOGIN_PASSWORD: ${APP_LOGIN_PASSWORD:-change_me_now}
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 4000
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:4001}
+      LOCAL_BACKEND_URL: ${LOCAL_BACKEND_URL:-http://backend:4000}
+      # Optional: set this to a public HTTPS backend URL so app-uploaded images can be used by Instagram.
+      PUBLIC_BACKEND_URL: ${PUBLIC_BACKEND_URL:-}
+      REDIS_URL: redis://redis:6379
+      PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: "true"
+      PUPPETEER_EXECUTABLE_PATH: /usr/bin/chromium
+      LINKEDIN_CHROME_PROFILE_PATH: /host_chrome_data
+      LINKEDIN_CHROME_PROFILE_DIRECTORY: "Profile 15"
+
+      # Facebook
+      FACEBOOK_APP_ID: ${FACEBOOK_APP_ID:-your_facebook_app_id}
+      FACEBOOK_APP_SECRET: ${FACEBOOK_APP_SECRET:-your_facebook_app_secret}
+      FACEBOOK_CALLBACK_URL: ${FACEBOOK_CALLBACK_URL:-http://localhost:4000/auth/facebook/callback}
+      FACEBOOK_ENABLE_PAGE_SCOPES: "true"
+
+      # Instagram (uses Facebook Graph API)
+      INSTAGRAM_APP_ID: ${INSTAGRAM_APP_ID:-your_instagram_app_id}
+      INSTAGRAM_APP_SECRET: ${INSTAGRAM_APP_SECRET:-your_instagram_app_secret}
+      INSTAGRAM_CALLBACK_URL: ${INSTAGRAM_CALLBACK_URL:-http://localhost:4000/auth/instagram/callback}
+
+      # LinkedIn (personal profile - App 1)
+      LINKEDIN_CLIENT_ID: ${LINKEDIN_CLIENT_ID:-your_linkedin_client_id}
+      LINKEDIN_CLIENT_SECRET: ${LINKEDIN_CLIENT_SECRET:-your_linkedin_client_secret}
+      LINKEDIN_CALLBACK_URL: ${LINKEDIN_CALLBACK_URL:-http://localhost:4000/auth/linkedin/callback}
+      LINKEDIN_COMPANY_ID: ${LINKEDIN_COMPANY_ID:-your_linkedin_company_id}
+      LINKEDIN_ENABLE_ORG_SCOPES: "false"
+
+      # LinkedIn Company Pages (Community Management API - App 2)
+      LINKEDIN_ORG_CLIENT_ID: ${LINKEDIN_ORG_CLIENT_ID:-your_linkedin_org_client_id}
+      LINKEDIN_ORG_CLIENT_SECRET: ${LINKEDIN_ORG_CLIENT_SECRET:-your_linkedin_org_client_secret}
+      LINKEDIN_ORG_CALLBACK_URL: ${LINKEDIN_ORG_CALLBACK_URL:-http://localhost:4000/auth/linkedin-org/callback}
+
+      # AI Providers (add your keys to enable AI content generation)
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-your_openai_api_key}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-your_gemini_api_key}
+      BIGMODEL_API_KEY: ${BIGMODEL_API_KEY:-your_bigmodel_api_key}
+      DEAPI_API_KEY: ${DEAPI_API_KEY:-your_deapi_api_key}
+      ALIBABA_DASHSCOPE_API_KEY: ${ALIBABA_DASHSCOPE_API_KEY:-your_alibaba_dashscope_api_key}
+      ALIBABA_REGION: ${ALIBABA_REGION:-singapore}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-your_anthropic_api_key}
+      GROK_API_KEY: ${GROK_API_KEY:-your_grok_api_key}
+
+      # Twitter/X
+      TWITTER_API_KEY: ${TWITTER_API_KEY:-your_twitter_api_key}
+      TWITTER_API_SECRET: ${TWITTER_API_SECRET:-your_twitter_api_secret}
+      TWITTER_CALLBACK_URL: ${TWITTER_CALLBACK_URL:-http://localhost:4000/auth/twitter/callback}
+
+      # Reddit
+      REDDIT_CLIENT_ID: ${REDDIT_CLIENT_ID:-your_reddit_client_id}
+      REDDIT_CLIENT_SECRET: ${REDDIT_CLIENT_SECRET:-your_reddit_client_secret}
+      REDDIT_CALLBACK_URL: ${REDDIT_CALLBACK_URL:-http://localhost:4000/auth/reddit/callback}
+
+      # Pinterest
+      PINTEREST_APP_ID: ${PINTEREST_APP_ID:-your_pinterest_app_id}
+      PINTEREST_APP_SECRET: ${PINTEREST_APP_SECRET:-your_pinterest_app_secret}
+      PINTEREST_CALLBACK_URL: ${PINTEREST_CALLBACK_URL:-http://localhost:4000/auth/pinterest/callback}
+
+    depends_on:
+      redis:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${BACKEND_PORT:-4000}:4000"
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+      - ${HOST_CHROME_DATA_PATH:-./chrome_data}:/host_chrome_data
+
+  frontend:
+    build: ./frontend
+    container_name: socialhub_frontend
+    restart: unless-stopped
+    environment:
+      HOST: 0.0.0.0
+      WDS_SOCKET_HOST: ${WDS_SOCKET_HOST:-72.61.115.120}
+      WDS_SOCKET_PORT: ${WDS_SOCKET_PORT:-4001}
+      REACT_APP_API_URL: ${REACT_APP_API_URL:-http://72.61.115.120:4000}
+    depends_on:
+      - backend
+    ports:
+      - "${FRONTEND_PORT:-4001}:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: socialhub_tunnel
+    restart: unless-stopped
+    # Quick tunnel — no account needed. Exposes backend on a *.trycloudflare.com HTTPS URL.
+    # The backend discovers the URL from the metrics API and sets PUBLIC_BACKEND_URL automatically.
+    command: tunnel --url http://backend:4000 --no-autoupdate --metrics 0.0.0.0:20000
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:

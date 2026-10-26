@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Alibaba Image Generation Debug Panel</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        
+        @media (max-width: 768px) {
+            .container {
+                grid-template-columns: 1fr;
+            }
+        }
+        
+        .panel {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            padding: 30px;
+            overflow: hidden;
+        }
+        
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 24px;
+        }
+        
+        .subtitle {
+            color: #666;
+            margin-bottom: 25px;
+            font-size: 13px;
+            font-style: italic;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        label {
+            display: block;
+            color: #333;
+            font-weight: 600;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+        
+        textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 6px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            resize: vertical;
+            transition: border-color 0.3s;
+        }
+        
+        textarea:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        
+        input[type="text"],
+        input[type="password"],
+        select {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #e0e0e0;
+            border-radius: 6px;
+            font-size: 13px;
+            transition: border-color 0.3s;
+        }
+        
+        input:focus,
+        select:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 25px;
+        }
+        
+        button {
+            flex: 1;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 6px;
+            font-weight: 600;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .btn-generate {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        
+        .btn-generate:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+        }
+        
+        .btn-generate:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .btn-clear {
+            background: #f0f0f0;
+            color: #333;
+        }
+        
+        .btn-clear:hover {
+            background: #e0e0e0;
+        }
+        
+        .status {
+            padding: 15px;
+            border-radius: 6px;
+            margin-top: 20px;
+            font-size: 13px;
+            line-height: 1.6;
+        }
+        
+        .status.loading {
+            background: #e3f2fd;
+            color: #1976d2;
+            border-left: 4px solid #1976d2;
+        }
+        
+        .status.success {
+            background: #e8f5e9;
+            color: #388e3c;
+            border-left: 4px solid #388e3c;
+        }
+        
+        .status.error {
+            background: #ffebee;
+            color: #d32f2f;
+            border-left: 4px solid #d32f2f;
+        }
+        
+        .logs-container {
+            background: #f5f5f5;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+            padding: 15px;
+            max-height: 500px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+        }
+        
+        .log-line {
+            padding: 5px 0;
+            border-bottom: 1px solid #e0e0e0;
+            margin-bottom: 5px;
+        }
+        
+        .log-line:last-child {
+            border-bottom: none;
+        }
+        
+        .log-timestamp {
+            color: #999;
+            margin-right: 10px;
+        }
+        
+        .log-type {
+            font-weight: bold;
+            margin-right: 10px;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 11px;
+        }
+        
+        .log-type.info {
+            background: #e3f2fd;
+            color: #1976d2;
+        }
+        
+        .log-type.error {
+            background: #ffebee;
+            color: #d32f2f;
+        }
+        
+        .log-type.success {
+            background: #e8f5e9;
+            color: #388e3c;
+        }
+        
+        .log-type.debug {
+            background: #f3e5f5;
+            color: #7b1fa2;
+        }
+        
+        .log-message {
+            color: #333;
+            word-break: break-all;
+        }
+        
+        .result-image {
+            margin-top: 20px;
+            border-radius: 8px;
+            max-width: 100%;
+            display: none;
+        }
+        
+        .result-image.show {
+            display: block;
+            animation: slideIn 0.3s ease-out;
+        }
+        
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .config-info {
+            background: #f9f9f9;
+            padding: 15px;
+            border-radius: 6px;
+            border-left: 4px solid #667eea;
+            margin-bottom: 20px;
+            font-size: 13px;
+        }
+        
+        .config-info h3 {
+            color: #667eea;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+        
+        .config-info p {
+            margin: 5px 0;
+            color: #666;
+        }
+        
+        .config-info code {
+            background: #f0f0f0;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Input Panel -->
+        <div class="panel">
+            <h1>🎨 Alibaba Image Generator</h1>
+            <p class="subtitle">DEDICATE TEST ENDPOINT - ALIBABA ONLY</p>
+            
+            <div class="config-info">
+                <h3>⚙️ Configuration</h3>
+                <p>🔗 Endpoint: <code>/api/ai/image-alibaba-debug</code></p>
+                <p>🌍 Region: <code>Singapore (dashscope-intl)</code></p>
+                <p>🎯 Model: <code>wan2.7-image-pro</code></p>
+                <p>📏 Size: <code>1024x1024</code></p>
+            </div>
+            
+            <form id="generatorForm">
+                <div class="form-group">
+                    <label for="prompt">📝 Image Prompt</label>
+                    <textarea id="prompt" rows="6" placeholder="Enter your image generation prompt here...
+Example: A serene landscape with mountains, blue sky, lake reflection, photorealistic style"></textarea>
+                </div>
+                
+                <div class="form-group">
+                    <label for="apiKey">🔑 API Key (Optional - auto-detected from backend)</label>
+                    <input type="password" id="apiKey" placeholder="Leave empty to use backend's key">
+                </div>
+                
+                <div class="button-group">
+                    <button type="button" class="btn-generate" id="generateBtn">🚀 Generate Image</button>
+                    <button type="button" class="btn-clear" id="clearBtn">🗑️ Clear</button>
+                </div>
+                
+                <div id="status" class="status" style="display: none;"></div>
+            </form>
+        </div>
+        
+        <!-- Logs Panel -->
+        <div class="panel">
+            <h1>📋 Debug Logs</h1>
+            <p class="subtitle">Real-time request/response logs</p>
+            
+            <div id="logs" class="logs-container">
+                <div class="log-line">
+                    <span class="log-type info">INFO</span>
+                    <span class="log-message">Waiting for requests...</span>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Results Panel (Full Width) -->
+    <div class="panel" style="margin-top: 20px; grid-column: 1/-1;">
+        <h2 style="color: #333; margin-bottom: 15px;">✨ Generated Image</h2>
+        <img id="resultImage" class="result-image" alt="Generated image">
+        <div id="resultInfo" style="font-size: 13px; color: #666; line-height: 1.6;"></div>
+    </div>
+
+    <script>
+        const BACKEND_URL = 'http://localhost:4000';
+        const ENDPOINT = '/api/ai/image-alibaba-debug';
+        
+        const promptField = document.getElementById('prompt');
+        const apiKeyField = document.getElementById('apiKey');
+        const generateBtn = document.getElementById('generateBtn');
+        const clearBtn = document.getElementById('clearBtn');
+        const statusDiv = document.getElementById('status');
+        const logsDiv = document.getElementById('logs');
+        const resultImage = document.getElementById('resultImage');
+        const resultInfo = document.getElementById('resultInfo');
+        
+        let requestCount = 0;
+        
+        function addLog(type, message) {
+            const time = new Date().toLocaleTimeString();
+            const logLine = document.createElement('div');
+            logLine.className = 'log-line';
+            logLine.innerHTML = `
+                <span class="log-timestamp">${time}</span>
+                <span class="log-type ${type}">${type.toUpperCase()}</span>
+                <span class="log-message">${escapeHtml(message)}</span>
+            `;
+            logsDiv.appendChild(logLine);
+            logsDiv.scrollTop = logsDiv.scrollHeight;
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        function showStatus(message, type) {
+            statusDiv.textContent = message;
+            statusDiv.className = `status ${type}`;
+            statusDiv.style.display = 'block';
+        }
+        
+        function clearLogs() {
+            logsDiv.innerHTML = '';
+        }
+        
+        generateBtn.addEventListener('click', async () => {
+            const prompt = promptField.value.trim();
+            if (!prompt) {
+                showStatus('❌ Please enter a prompt', 'error');
+                return;
+            }
+            
+            requestCount++;
+            clearLogs();
+            addLog('info', `Request #${requestCount} started`);
+            generateBtn.disabled = true;
+            showStatus('⏳ Generating image...', 'loading');
+            resultImage.classList.remove('show');
+            resultInfo.innerHTML = '';
+            
+            try {
+                addLog('debug', `Endpoint: POST ${BACKEND_URL}${ENDPOINT}`);
+                addLog('debug', `Prompt length: ${prompt.length} characters`);
+                addLog('debug', `Sending request...`);
+                
+                const response = await fetch(`${BACKEND_URL}${ENDPOINT}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer dummy-token` // Placeholder for auth
+                    },
+                    credentials: 'include',
+                    body: JSON.stringify({ prompt })
+                });
+                
+                addLog('debug', `Response status: ${response.status} ${response.statusText}`);
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    addLog('success', 'Image generation successful!');
+                    addLog('debug', `Provider: ${data.provider}`);
+                    addLog('debug', `Region: ${data.debug?.region || 'N/A'}`);
+                    addLog('debug', `Elapsed: ${data.debug?.elapsed || 'N/A'}`);
+                    addLog('debug', `Model: ${data.debug?.model || 'wan2.7-image-pro'}`);
+                    
+                    if (data.url) {
+                        addLog('success', `Image URL: ${data.url.substring(0, 80)}...`);
+                        resultImage.src = data.url;
+                        resultImage.classList.add('show');
+                        resultInfo.innerHTML = `
+                            <strong>✅ Success!</strong><br>
+                            Model: ${data.debug?.model || 'wan2.7-image-pro'}<br>
+                            Region: ${data.debug?.region || 'singapore'}<br>
+                            Generation Time: ${data.debug?.elapsed || 'N/A'}<br>
+                            Provider: ${data.provider}
+                        `;
+                        showStatus('✅ Image generated successfully!', 'success');
+                    }
+                } else {
+                    addLog('error', `Error: ${data.error || 'Unknown error'}`);
+                    if (data.debug) {
+                        addLog('error', `Debug Info: ${JSON.stringify(data.debug, null, 2)}`);
+                    }
+                    showStatus(`❌ ${data.error || 'Failed to generate image'}`, 'error');
+                }
+            } catch (error) {
+                addLog('error', `Network error: ${error.message}`);
+                showStatus(`❌ ${error.message}`, 'error');
+            } finally {
+                generateBtn.disabled = false;
+            }
+        });
+        
+        clearBtn.addEventListener('click', () => {
+            promptField.value = '';
+            promptField.focus();
+        });
+        
+        // Example prompts
+        const examplePrompts = [
+            "A serene landscape with mountains, blue sky, lake reflection, photorealistic style",
+            "Modern minimalist interior design, white walls, natural lighting, wooden furniture",
+            "Abstract digital art, neon colors, cyber aesthetic, futuristic elements",
+            "A sunny beach scene with palm trees, turquoise water, sandy shore"
+        ];
+        
+        // Auto-fill example on load
+        promptField.placeholder = `Example: ${examplePrompts[0]}`;
+    </script>
+</body>
+</html>

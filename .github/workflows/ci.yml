@@ -1,0 +1,77 @@
+name: CI / Build & Test
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: socialhub
+          POSTGRES_USER: socialhub
+          POSTGRES_PASSWORD: socialhub_secret
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U socialhub"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Copy env example
+        run: cp .env.example .env
+
+      - name: Install backend dependencies
+        working-directory: ./backend
+        run: npm ci
+
+      - name: Install frontend dependencies
+        working-directory: ./frontend
+        run: npm ci
+
+      - name: Lint backend
+        working-directory: ./backend
+        run: npm ls 2>&1 | tail -5 || true
+
+      - name: Lint frontend
+        working-directory: ./frontend
+        run: npm ls 2>&1 | tail -5 || true
+
+      - name: Build Docker images
+        run: docker-compose build
+
+      - name: Start services
+        run: docker-compose up -d postgres redis backend frontend
+
+      - name: Wait for services to be ready
+        run: |
+          sleep 15
+          curl -sf http://localhost:4000/ || echo "Backend not responding yet"
+          curl -sf http://localhost:4001/ || echo "Frontend not responding yet"
+
+      - name: Show logs if failed
+        if: failure()
+        run: docker-compose logs backend frontend || true

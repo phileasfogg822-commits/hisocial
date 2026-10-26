@@ -1,0 +1,98 @@
+# HiSocial instance template — Phase 0.
+# All values come from the instance .env file. Never hard-code a secret here.
+# Copy this file into an instance folder and run scripts/new-instance.sh to
+# render it with that instance's ports and project name, or use it directly
+# with a completed .env file. The cloudflared service is in the "tunnel"
+# profile only: start it explicitly with
+#   docker compose --profile tunnel up -d cloudflared
+# after completing the manual named-tunnel steps in README.md.
+# There is deliberately NO ephemeral tunnel in this template: ephemeral
+# tunnel URLs change on restart and break OAuth callbacks and Instagram media URLs.
+
+name: ${COMPOSE_PROJECT_NAME:?COMPOSE_PROJECT_NAME is required in .env}
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: ${COMPOSE_PROJECT_NAME}_redis
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${REDIS_HOST_PORT:-6380}:6379"
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: ${COMPOSE_PROJECT_NAME}_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: socialhub
+      POSTGRES_USER: socialhub
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required in .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5433}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U socialhub"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: ./backend
+    container_name: ${COMPOSE_PROJECT_NAME}_backend
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://socialhub:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required in .env}@postgres:5432/socialhub
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required in .env}
+      SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET is required in .env}
+      APP_LOGIN_USERNAME: ${APP_LOGIN_USERNAME:-admin}
+      APP_LOGIN_PASSWORD: ${APP_LOGIN_PASSWORD:?APP_LOGIN_PASSWORD is required in .env}
+      MUSE_BRIDGE_TOKEN: ${MUSE_BRIDGE_TOKEN:-}
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: 4000
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:4001}
+      PUBLIC_BACKEND_URL: ${PUBLIC_BACKEND_URL:-}
+      REDIS_URL: redis://redis:6379
+      PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: "true"
+      PUPPETEER_EXECUTABLE_PATH: /usr/bin/chromium
+    depends_on:
+      redis:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${BACKEND_PORT:-4000}:4000"
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+
+  frontend:
+    build: ./frontend
+    container_name: ${COMPOSE_PROJECT_NAME}_frontend
+    restart: unless-stopped
+    environment:
+      HOST: 0.0.0.0
+      REACT_APP_API_URL: ${REACT_APP_API_URL:-http://localhost:4000}
+    depends_on:
+      - backend
+    ports:
+      - "${FRONTEND_PORT:-4001}:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: ${COMPOSE_PROJECT_NAME}_tunnel
+    restart: unless-stopped
+    profiles:
+      - tunnel
+    command: tunnel --config /etc/cloudflared/config.yml run
+    volumes:
+      - ./cloudflared:/etc/cloudflared:ro
+    depends_on:
+      - backend
+      - frontend
+
+volumes:
+  postgres_data:

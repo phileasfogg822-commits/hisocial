@@ -136,95 +136,10 @@ router.get('/linkedin-org', requireAppProfile, (req, res) => {
   res.redirect(`https://www.linkedin.com/oauth/v2/authorization?${params}`);
 });
 
-router.get('/linkedin-org/callback', async (req, res) => {
-  const { code, error, error_description } = req.query;
-
-  if (error) {
-    console.error('LinkedIn Org OAuth error:', error, error_description || '');
-    return res.redirect(`${FRONTEND_URL}?error=linkedin_org_auth_failed&msg=${encodeURIComponent(error_description || String(error))}`);
-  }
-
-  if (!code) {
-    return res.redirect(`${FRONTEND_URL}?error=linkedin_org_auth_failed`);
-  }
-
-  try {
-    const axios = require('axios');
-    const db = req.app.locals.db;
-    const oauthUserId = getOauthLinkedUserId(req);
-    let user = null;
-    if (oauthUserId) {
-      const userResult = await db.query('SELECT * FROM users WHERE id = $1', [oauthUserId]);
-      user = userResult.rows[0] || null;
-    }
-    if (!user) user = req.user;
-
-    if (!user) {
-      return res.redirect(`${FRONTEND_URL}?error=not_logged_in`);
-    }
-
-    const callbackUrl = process.env.LINKEDIN_ORG_CALLBACK_URL || 'http://localhost:4000/auth/linkedin-org/callback';
-
-    const tokenRes = await axios.post(
-      'https://www.linkedin.com/oauth/v2/accessToken',
-      new URLSearchParams({
-        grant_type: 'authorization_code',
-        code: String(code),
-        redirect_uri: callbackUrl,
-        client_id: process.env.LINKEDIN_ORG_CLIENT_ID,
-        client_secret: process.env.LINKEDIN_ORG_CLIENT_SECRET
-      }),
-      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
-    );
-
-    const accessToken = tokenRes.data.access_token;
-    const grantedScope = String(tokenRes.data.scope || '').trim();
-    console.log('LinkedIn Org granted scopes:', grantedScope || '(none)');
-
-    // We already know the company ID — no ACL lookup needed (rw_organization_admin not available)
-    const companyId = String(process.env.LINKEDIN_COMPANY_ID || '').trim();
-    if (!companyId) {
-      throw new Error('LINKEDIN_COMPANY_ID is not set in environment');
-    }
-
-    // Fetch the org name from the public organization lookup endpoint
-    let orgName = `Organization ${companyId}`;
-    try {
-      const orgRes = await axios.get(`https://api.linkedin.com/v2/organizations/${companyId}`, {
-        params: { projection: '(localizedName,vanityName)' },
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'X-Restli-Protocol-Version': '2.0.0'
-        }
-      });
-      orgName = orgRes.data?.localizedName || orgRes.data?.vanityName || orgName;
-      console.log('LinkedIn Org: connected to organization:', orgName, companyId);
-    } catch (orgErr) {
-      console.warn('LinkedIn Org: could not fetch org name, using ID:', orgErr.response?.data || orgErr.message);
-    }
-
-    // Store as 'linkedin_page' for the currently logged-in user
-    await db.query(
-      `INSERT INTO social_accounts
-       (user_id, platform, platform_user_id, platform_username, platform_display_name, platform_avatar_url, access_token, scope)
-       VALUES ($1,'linkedin_page',$2,$3,$4,$5,$6,$7)
-       ON CONFLICT (user_id, platform) DO UPDATE SET
-       access_token=$6,
-       scope=$7,
-       platform_user_id=$2,
-       platform_username=$3,
-       platform_display_name=$4,
-       updated_at=NOW()`,
-      [user.id, companyId, orgName, orgName, null, accessToken, grantedScope || null]
-    );
-
-    return finishOAuth(req, res, user, 'linkedin_page');
-  } catch (e) {
-    console.error('LinkedIn Org callback error:', e.response?.data || e.message);
-    res.redirect(`${FRONTEND_URL}?error=linkedin_org_auth_failed&msg=${encodeURIComponent(e.response?.data?.message || e.message)}`);
-  }
-});
-
+// Phase 1: duplicate '/linkedin-org/callback' removed. The retained handler below
+// is the one that was live (Express uses the later registration), so behaviour is
+// unchanged. The removed handler's LINKEDIN_COMPANY_ID approach is a candidate
+// for the dedicated LinkedIn phase, not silently adopted here.
 router.get('/linkedin-org/callback', async (req, res) => {
   const { code, error, error_description } = req.query;
 

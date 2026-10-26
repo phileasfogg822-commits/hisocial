@@ -3,7 +3,8 @@ node_modules/
 npm-debug.log
 yarn-debug.log
 yarn-error.log
-package-lock.json
+# Phase 1: lockfiles are committed on purpose — CI runs `npm ci`,
+# which requires them. (Previously ignored, which broke CI.)
 
 # Environment files (never commit real secrets)
 .env
@@ -30,6 +31,9 @@ token.TXT
 
 # Database dumps & archives
 *.sql
+# Phase 1: the one intentional SQL file — the Postgres init script
+# mounted by docker-compose. All other *.sql dumps stay ignored.
+!backend/init.sql
 *.tar.gz
 *.zip
 *.pdf

@@ -102,6 +102,40 @@ change to app behaviour except the one duplicate-route removal below
   `npm ci --ignore-scripts` succeeds (1293 packages, TypeScript
   4.9.5 installed). No other frontend dependency changed.
 
+## 1.7 CI failure on second head, fixed in this phase
+
+- Second CI run on head `97a6822` (run `40404684266`) passed
+  installs, lint, Docker build and service start, then failed at
+  `Wait for services to be ready`. The log read shows the real
+  cause, not slow startup: the backend crashed with
+  `Failed to seed starter accounts: error: relation "posts" does
+  not exist` at the first `ALTER TABLE posts` in
+  `runMigrations()`, and never printed
+  `SocialHub backend running on port 4000`. The frontend, by
+  contrast, reported `Compiled successfully!`.
+- Root cause: the backend depended entirely on
+  `backend/init.sql`, which Docker only runs on a fresh
+  volume's first init. A database created any other way — or an
+  existing volume — had no `posts` table, so the first ALTER
+  crashed startup. Whether init.sql failed to run or was never
+  run on that runner is not proven from the CI logs (postgres
+  logs were not printed), so the fix does not depend on
+  answering that: startup must not depend on init.sql at all.
+- Fix:
+  1. `runMigrations()` now creates the 8 base tables (and
+     `pgcrypto`, and their indexes) itself, before any ALTER,
+     mirroring `init.sql` exactly (verified: all 8 tables
+     present in both). `init.sql` is kept for fresh Docker DBs
+     and must stay in sync, but it is no longer load-bearing.
+  2. Startup is now sequential — `runMigrations()` then
+     `ensureStarterAccounts()` then listen — instead of
+     `Promise.all`, which could race the starter insert against
+     the new table creation.
+  3. CI readiness now retries `/health` for up to ~120s
+     instead of a single curl after 20s, so slow startup is no
+     longer confused with a crash, and the failure-logs step
+     now prints postgres logs too.
+
 ## NOT proven yet — honest limits
 
 - CI on this branch is pending at push time. Phase 1 is NOT

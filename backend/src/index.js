@@ -142,6 +142,130 @@ async function ensureStarterAccounts() {
 }
 
 async function runMigrations() {
+  // Phase 1: base tables that used to exist only in backend/init.sql.
+  // init.sql runs only on a fresh Docker volume's first init, so a
+  // database created any other way (or an existing volume) had no
+  // users/posts/sessions tables at all, and the first ALTER below
+  // crashed the backend with 'relation "posts" does not exist'
+  // (CI run 40404684266). Creating them here, before any ALTER,
+  // makes startup independent of the init script. init.sql is kept
+  // for fresh Docker DBs and must stay in sync with this block.
+  await pool.query(`CREATE EXTENSION IF NOT EXISTS pgcrypto`);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+      email TEXT NOT NULL UNIQUE,
+      name TEXT,
+      avatar_url TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )`);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS social_accounts (
+      id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      platform TEXT NOT NULL,
+      platform_user_id TEXT,
+      platform_username TEXT,
+      platform_display_name TEXT,
+      platform_avatar_url TEXT,
+      access_token TEXT,
+      refresh_token TEXT,
+      token_expires_at TIMESTAMPTZ,
+      scope TEXT,
+      is_active BOOLEAN DEFAULT true,
+      connected_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE (user_id, platform)
+    )`);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS posts (
+      id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      content TEXT,
+      platforms TEXT[] DEFAULT '{}',
+      media_urls TEXT[] DEFAULT '{}',
+      status VARCHAR(30) NOT NULL,
+      scheduled_at TIMESTAMPTZ,
+      published_at TIMESTAMPTZ,
+      facebook_page_ids TEXT[] DEFAULT '{}',
+      linkedin_target_ids TEXT[] DEFAULT '{}',
+      autopilot_generated BOOLEAN DEFAULT false,
+      generation_source VARCHAR(30),
+      generation_batch_id VARCHAR(100),
+      generation_index INTEGER,
+      generation_total INTEGER,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )`);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS platform_posts (
+      id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+      post_id UUID NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+      platform VARCHAR(50) NOT NULL,
+      platform_post_id TEXT,
+      platform_post_url TEXT,
+      status VARCHAR(30) NOT NULL,
+      error_message TEXT,
+      posted_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )`);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS sessions (
+      sid VARCHAR NOT NULL COLLATE "default" PRIMARY KEY,
+      sess JSON NOT NULL,
+      expire TIMESTAMP(6) NOT NULL
+    )`);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ai_creative_sessions (
+      id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      tone TEXT,
+      niche TEXT,
+      category TEXT,
+      topic TEXT,
+      status VARCHAR(30),
+      final_prompt TEXT,
+      image_url TEXT,
+      image_generated_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )`);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ai_phase_logs (
+      id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+      session_id UUID NOT NULL REFERENCES ai_creative_sessions(id) ON DELETE CASCADE,
+      phase_number NUMERIC(5,1) NOT NULL,
+      phase_name TEXT,
+      input_data JSONB,
+      output_data JSONB,
+      status VARCHAR(30),
+      scores JSONB,
+      duration_ms INTEGER DEFAULT 0,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )`);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ai_generated_content (
+      id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+      session_id UUID NOT NULL REFERENCES ai_creative_sessions(id) ON DELETE CASCADE,
+      post_content TEXT,
+      headline TEXT,
+      hashtags TEXT,
+      image_ratio VARCHAR(20),
+      image_style VARCHAR(30),
+      image_prompt TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )`);
+
+  // Indexes from init.sql, so both startup paths produce the same schema.
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_posts_user_created ON posts (user_id, created_at DESC)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_posts_scheduled ON posts (status, scheduled_at) WHERE status = 'scheduled'`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_platform_posts_post ON platform_posts (post_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_session_expire ON sessions (expire)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_ai_creative_sessions_user ON ai_creative_sessions (user_id, created_at DESC)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_ai_phase_logs_session ON ai_phase_logs (session_id, phase_number)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_ai_generated_content_session ON ai_generated_content (session_id)`);
+
   await pool.query(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS facebook_page_ids TEXT[] DEFAULT '{}'`);
   await pool.query(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS linkedin_target_ids TEXT[] DEFAULT '{}'`);
   await pool.query(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS autopilot_generated BOOLEAN DEFAULT false`);
@@ -458,7 +582,11 @@ async function discoverAndSetTunnelUrl() {
   console.warn('   docker-compose.yml or set PUBLIC_BACKEND_URL manually.\n');
 }
 
-Promise.all([ensureStarterAccounts(), runMigrations()])
+// Phase 1: sequential, not parallel. ensureStarterAccounts inserts
+// into users, which runMigrations now creates; running them in
+// parallel raced (starter insert could run before users existed).
+runMigrations()
+  .then(() => ensureStarterAccounts())
   .then(() => {
     app.listen(PORT, () => {
       console.log(`🚀 SocialHub backend running on port ${PORT}`);

@@ -70,10 +70,24 @@ jobs:
 
       - name: Wait for services to be ready
         run: |
-          sleep 20
-          curl -sf http://localhost:4000/health
+          # Phase 1: retry, don't fail on the first probe. Backend
+          # startup includes DB migrations and can take well over
+          # 20s; a single curl after a fixed sleep confuses slow
+          # startup with a real crash.
+          for i in $(seq 1 24); do
+            if curl -sf http://localhost:4000/health; then
+              echo "Backend healthy after ${i} probe(s)"
+              break
+            fi
+            echo "Backend not healthy yet (probe $i/24), waiting..."
+            sleep 5
+            if [ "$i" = "24" ]; then
+              echo "Backend never became healthy"
+              exit 1
+            fi
+          done
           curl -sf http://localhost:4001/ || echo "Frontend not responding yet"
 
       - name: Show logs if failed
         if: failure()
-        run: docker compose logs backend frontend || true
+        run: docker compose logs postgres backend frontend || true

@@ -1,223 +1,100 @@
-# ⚡ SocialHub — All Platforms in One PWA
+# 📘 hisocial — Your Social Media Control Hub
 
-Post to Facebook, Instagram, LinkedIn, Twitter/X, Reddit, and Pinterest from a single app.
-Built with React PWA + Node.js + PostgreSQL, fully Dockerized.
+Post to Facebook, Instagram, LinkedIn, Twitter/X, Reddit, and Pinterest from one app.
 
----
+> ⚠️ **Important:** GitHub only stores the code. To actually use the app, you need a computer with **Docker Desktop** installed. You also need to create your own developer accounts on each social platform to get API keys.
 
-## 🚀 Quick Start
+## 🖥️ What you need before starting
 
-### 1. Prerequisites
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) installed and running
+1. **A computer** (Windows or Mac) with [Docker Desktop](https://www.docker.com/products/docker-desktop/) installed and running.
+2. **Your own login credentials** (you will choose a username and password).
+3. **Social platform developer accounts** — one for each platform you want to connect (Facebook, LinkedIn, Twitter/X, Instagram, Reddit, Pinterest). These are free but require approval.
 
-### 2. Clone / extract this project, then:
+## 🚀 Step-by-step setup (non-technical)
 
+### Step 1: Get the code on your computer
+Download this repo as a ZIP, or clone it:
 ```bash
-cd social-hub
+git clone https://github.com/hrperalglobalcity-spec/hisocial.git
+cd hisocial
+```
+
+### Step 2: Create your settings file
+Make a copy of the example file:
+```bash
+cp .env.example .env
+```
+
+Open `.env` in a text editor (Notepad, TextEdit, VS Code) and fill in:
+
+| Setting | What to put |
+|---------|-------------|
+| `APP_LOGIN_USERNAME` | Your chosen admin username (e.g. `admin`) |
+| `APP_LOGIN_PASSWORD` | Your chosen admin password |
+| `JWT_SECRET` | Any random long string (e.g. `mysecret123456`) |
+| `SESSION_SECRET` | Any random long string (e.g. `myothersession789`) |
+
+Leave the other values as-is for now. Save the file.
+
+> 🔒 **Never upload or share the `.env` file.** It contains your passwords.
+
+### Step 3: Start the app
+```bash
 docker-compose up --build
 ```
 
-Open **http://localhost:3000**
+Wait until you see messages saying the backend and frontend are ready.
 
----
+### Step 4: Open the app
+Open your browser and go to:
+**http://localhost:4001**
 
-## 🔑 Connecting Social Platforms
+Log in with the username and password you set in `.env`.
 
-Each platform requires you to create a developer app and paste credentials into `docker-compose.yml`.
+## 🔑 Connect your social accounts (do this inside the app)
 
-### Facebook
-1. Go to https://developers.facebook.com → Create App → Consumer
-2. Add "Facebook Login" product
-3. Set Valid OAuth Redirect: `http://localhost:4000/auth/facebook/callback`
-4. Copy App ID and App Secret into `docker-compose.yml`:
-   ```
-   FACEBOOK_APP_ID: 123456789
-   FACEBOOK_APP_SECRET: abcdef...
-   ```
+Once logged in, go to the **Accounts** or **Connections** section and click "Connect" for each platform:
 
-### Instagram
-1. Same Facebook Developer app → Add "Instagram Basic Display" product
-2. Set Valid OAuth Redirect: `http://localhost:4000/auth/instagram/callback`
-3. Copy Instagram App ID and Secret:
-   ```
-   INSTAGRAM_APP_ID: 123456789
-   INSTAGRAM_APP_SECRET: abcdef...
-   ```
-> Note: Instagram requires a Business/Creator account for posting via API.
+- **Facebook** — Create an app at https://developers.facebook.com
+- **Instagram** — Same Facebook developer app
+- **LinkedIn** — Create an app at https://www.linkedin.com/developers
+- **Twitter / X** — Create an app at https://developer.twitter.com
+- **Reddit** — Create an app at https://www.reddit.com/prefs/apps
+- **Pinterest** — Create an app at https://developers.pinterest.com
 
-### LinkedIn
-1. Go to https://www.linkedin.com/developers/ → Create App
-2. Add OAuth 2.0 redirect: `http://localhost:4000/auth/linkedin/callback`
-3. Request permissions: `r_emailaddress`, `r_liteprofile`, `w_member_social`
-4. Copy Client ID and Secret:
-   ```
-   LINKEDIN_CLIENT_ID: 123abc
-   LINKEDIN_CLIENT_SECRET: abcdef...
-   ```
-
-### Twitter / X
-1. Go to https://developer.twitter.com → Create Project & App
-2. Enable OAuth 1.0a
-3. Set Callback URL: `http://localhost:4000/auth/twitter/callback`
-4. Copy API Key and Secret:
-   ```
-   TWITTER_API_KEY: your_key
-   TWITTER_API_SECRET: your_secret
-   ```
-
-### Reddit
-1. Go to https://www.reddit.com/prefs/apps → Create App → Select "web app"
-2. Set redirect URI: `http://localhost:4000/auth/reddit/callback`
-3. Copy client ID (under app name) and secret:
-   ```
-   REDDIT_CLIENT_ID: abc123
-   REDDIT_CLIENT_SECRET: abcdef...
-   ```
-
-### Pinterest
-1. Go to https://developers.pinterest.com → My Apps → Create App
-2. Set redirect URI: `http://localhost:4000/auth/pinterest/callback`
-3. Request scopes: `boards:read`, `pins:read`, `pins:write`
-4. Copy App ID and Secret:
-   ```
-   PINTEREST_APP_ID: 123456
-   PINTEREST_APP_SECRET: abcdef...
-   ```
-
----
-
-## 🏗️ Architecture
-
-```
-social-hub/
-├── docker-compose.yml       # Orchestrates all services
-├── backend/
-│   ├── Dockerfile
-│   ├── package.json
-│   ├── init.sql             # PostgreSQL schema
-│   └── src/
-│       ├── index.js         # Express app entry
-│       ├── passport.js      # OAuth strategies
-│       ├── services/
-│       │   ├── linkedinScraper.js     # Headless LinkedIn scan (Puppeteer)
-│       │   ├── monitorWorker.js       # BullMQ + Redis background worker
-│       │   ├── monitorEngine.js       # Scan + dedupe + AI pipeline
-│       │   ├── deduplicationService.js
-│       │   └── aiAnalyzer.js
-│       └── routes/
-│           ├── auth.js      # OAuth callbacks + disconnect
-│           ├── user.js      # User profile + post history
-│           ├── posts.js     # Cross-platform posting
-│           ├── platforms.js # Platform metadata
-│           └── monitorRoutes.js # AI Monitor API
-└── frontend/
-    ├── Dockerfile
-    ├── public/
-    │   ├── index.html
-    │   └── manifest.json    # PWA manifest
-    └── src/
-        ├── index.js
-        └── App.js           # Full React UI (Compose + Calendar + Library + AI Monitor)
-```
-
-**Services:**
-| Service    | Port | Purpose                        |
-|------------|------|--------------------------------|
-| redis      | 6379 | Queue backend for monitor jobs |
-| postgres   | 5432 | Persistent storage             |
-| backend    | 4000 | API + OAuth + posting logic    |
-| frontend   | 3000 | React PWA                      |
-
----
-
-## 🧠 AI Monitor Module (Integrated Tab)
-
-The app includes an in-app **AI Monitor** tab (no separate app) with a 3-column workflow:
-
-1. **Monitor Jobs**
-   - Create monitoring jobs with dynamic keywords (one per line)
-   - LinkedIn platform (current), include/exclude filters, user context
-   - Auto-run toggle + scan interval (minutes)
-
-2. **Extracted Posts (Live Feed)**
-   - Shows unique hiring opportunities sorted by relevance score
-   - Includes author/company, snippet, matched keywords, timestamp, platform link
-
-3. **AI Actions Panel**
-   - AI-generated comment / DM / proposal per selected post
-   - Edit, copy, save-for-later, approve actions
-
-### Background Worker Behavior
-- Runs in backend continuously (independent of UI being open)
-- Uses **BullMQ + Redis** queue
-- Uses **Puppeteer headless** (no external browser window)
-- Scans auto-run jobs on interval, deduplicates, scores, and generates AI responses
-
-### Monitor API
-- `POST /api/monitor/create` — create/update monitor job
-- `GET /api/monitor/jobs` — list monitor jobs
-- `GET /api/monitor/posts?jobId=...` — fetch deduped monitored posts + AI responses
-- `POST /api/monitor/scan` — queue scan for a monitor job
-- `POST /api/monitor/action` — save/approve/update AI response drafts
-
-### Monitor Data Model
-- `monitor_jobs` — job definitions, keywords, filters, context, auto-run config
-- `monitor_posts` — extracted posts, fingerprint hash, relevance score, dedupe linkage
-- `ai_responses` — generated comment/dm/proposal for each monitor post
-
-### Required Runtime Environment
-Configured in `docker-compose.yml`:
-- `REDIS_URL=redis://redis:6379`
-- `PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true`
-- `PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser`
-
----
-
-## 🗄️ Database
-
-Data is stored in PostgreSQL with these tables:
-- `users` — Your account (created automatically on first login)
-- `social_accounts` — Connected platforms + tokens
-- `posts` — Post history
-- `platform_posts` — Per-platform post results
-- `sessions` — Keep you logged in for 30 days
-
----
-
-## 🔒 Security Notes
-
-Before deploying to production:
-1. Change `JWT_SECRET` and `SESSION_SECRET` in `docker-compose.yml`
-2. Set `NODE_ENV=production`
-3. Use HTTPS (update all callback URLs)
-4. Set `secure: true` for cookies
-
----
-
-## 🖼️ Media Upload Notes
-
-- Facebook and LinkedIn can now publish images that were uploaded through the app from your local system because the backend uploads the binary image data directly to those APIs.
-- Instagram's Graph API still requires a public HTTPS image URL that Meta's servers can reach. A localhost URL like `http://localhost:4000/uploads/...` will not work for Instagram.
-- To make app-uploaded images usable for Instagram, set `PUBLIC_BACKEND_URL` in the backend environment to a public HTTPS URL that points to this backend, for example a deployed domain or a tunnel URL.
-
----
-
-## 🛠️ Commands
-
+For each platform, copy the **App ID** and **App Secret** and paste them into your `.env` file, then restart Docker:
 ```bash
-# Start everything
-docker-compose up --build
-
-# Stop
 docker-compose down
-
-# View logs
-docker-compose logs -f backend
-
-# Reset database
-docker-compose down -v
 docker-compose up --build
-
-# Access PostgreSQL directly
-docker exec -it socialhub_db psql -U socialhub -d socialhub
 ```
+
+> 📌 GitHub **cannot** create these credentials for you. You must create them yourself on each platform's developer website.
+
+## 🐳 Docker commands you need to know
+
+| What you want to do | Command |
+|---------------------|---------|
+| Start the app | `docker-compose up --build` |
+| Stop the app | `docker-compose down` |
+| Restart after changing `.env` | `docker-compose down` then `docker-compose up --build` |
+| View app logs | `docker-compose logs -f backend` |
+| Completely reset (deletes all data) | `docker-compose down -v` then `docker-compose up --build` |
+
+## ❓ Common questions
+
+**"Do I need to reset keys every time?"**
+No. Once you set your `.env` file and start Docker, it stays running until you stop it.
+
+**"Do I need to run Docker every time?"**
+Yes. The app only works while Docker Desktop is running. If you shut down your computer, start Docker Desktop again and run `docker-compose up`.
+
+**"Can GitHub create my social media accounts or credentials?"**
+No. GitHub is just code storage. You create credentials on Facebook, LinkedIn, Twitter, etc. yourself.
+
+**"I don't have a computer/system."**
+You need a computer with Docker Desktop to run this app. GitHub alone cannot run it for you.
+
+## 🛡️ Safety
+
+- Never commit your real `.env` file to GitHub.
+- If you accidentally share a real API key, go to that platform's website and revoke/generate a new key immediately.

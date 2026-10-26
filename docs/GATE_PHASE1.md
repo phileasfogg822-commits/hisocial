@@ -34,8 +34,9 @@ change to app behaviour except the one duplicate-route removal below
   creates itself: `users`, `social_accounts`, `posts`,
   `platform_posts`, `sessions`, `ai_creative_sessions`,
   `ai_phase_logs`, `ai_generated_content`, plus
-  `CREATE EXTENSION pgcrypto` (required: `runMigrations()` uses
-  `uuid_generate_v4()` but never enables the extension).
+  `CREATE EXTENSION "uuid-ossp"` (required: `runMigrations()` uses
+  `uuid_generate_v4()` but never enables the extension; corrected
+  in §1.8 — it was originally, wrongly, pgcrypto).
 - Method: a read-only schema audit over every `INSERT` / `UPDATE` /
   `WHERE` / `JOIN` / `ON CONFLICT` reference in `backend/src/`.
   Tables already created by `runMigrations()` are deliberately NOT
@@ -135,6 +136,41 @@ change to app behaviour except the one duplicate-route removal below
      instead of a single curl after 20s, so slow startup is no
      longer confused with a crash, and the failure-logs step
      now prints postgres logs too.
+
+## 1.8 CI failure on third head — the actual root cause, fixed
+
+- Third CI run on head `b106566` (run `40405772382`) passed
+  installs, lint, Docker build and service start, then failed
+  `Wait for services to be ready` after all 24 health probes
+  (about 120 seconds) failed. The logs now prove the cause,
+  and it also explains the previous run:
+  - Postgres init log: `CREATE EXTENSION` succeeded, then
+    `ERROR: function uuid_generate_v4() does not exist` on the
+    very first table (`users`), and the init script aborted
+    there — which is why `posts` never existed in the previous
+    run, and why its first ALTER crashed.
+  - Backend log: the same error, repeated 11 times as the
+    container restarted, at the first base-table creation in
+    `runMigrations()`. It never printed
+    `SocialHub backend running on port 4000`. Postgres itself
+    started and accepted connections; only the function was
+    missing.
+- Root cause, owned plainly: my Phase 1 code created the wrong
+  extension. `uuid_generate_v4()` comes from the `uuid-ossp`
+  extension, not from `pgcrypto` — pgcrypto provides
+  `gen_random_uuid()`, a different function. Creating pgcrypto
+  succeeded, which hid the mistake, and then every table
+  creation failed. The earlier gate-doc claim that pgcrypto was
+  "required" was wrong and is corrected here.
+- Fix: both `backend/init.sql` and `runMigrations()` now run
+  `CREATE EXTENSION IF NOT EXISTS "uuid-ossp"` (with a comment
+  explaining the distinction, so the mistake is not re-made).
+  No table definition changed. If `uuid-ossp` is unavailable
+  in the `postgres:16-alpine` image, CI will fail with a clear
+  extension-availability error instead of this one, and the
+  fallback would be to switch the defaults to
+  `gen_random_uuid()` — that fallback is NOT applied yet,
+  because it would change every existing table's default.
 
 ## NOT proven yet — honest limits
 

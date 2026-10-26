@@ -19,7 +19,12 @@
 -- the APP_LOGIN_USERNAME / APP_LOGIN_PASSWORD env pair, not a users
 -- password.
 
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
+-- uuid_generate_v4() comes from "uuid-ossp", NOT from pgcrypto
+-- (pgcrypto provides gen_random_uuid(), not uuid_generate_v4).
+-- Creating pgcrypto alone was the Phase 1 bug: the extension
+-- command succeeded, then every table creation failed with
+-- 'function uuid_generate_v4() does not exist' (CI 40405772382).
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 CREATE TABLE IF NOT EXISTS users (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

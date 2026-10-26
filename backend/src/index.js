@@ -150,7 +150,11 @@ async function runMigrations() {
   // (CI run 40404684266). Creating them here, before any ALTER,
   // makes startup independent of the init script. init.sql is kept
   // for fresh Docker DBs and must stay in sync with this block.
-  await pool.query(`CREATE EXTENSION IF NOT EXISTS pgcrypto`);
+  // Phase 1 correction: uuid_generate_v4() is from "uuid-ossp",
+  // NOT pgcrypto (pgcrypto provides gen_random_uuid()). Creating
+  // pgcrypto alone succeeded, then every table creation failed
+  // with 'function uuid_generate_v4() does not exist' (CI 40405772382).
+  await pool.query(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
       id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

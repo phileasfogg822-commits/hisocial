@@ -1,0 +1,16 @@
+# Cloudflare named-tunnel config — TEMPLATE. Copy to config.yml in the
+# instance folder and fill in TUNNEL_ID and the credentials-file path.
+# Manual owner steps (see README.md):
+#   cloudflared tunnel create hisocial-<slug>
+#   cloudflared tunnel route dns hisocial-<slug> <domain>
+#   cloudflared tunnel route dns hisocial-<slug> api.<domain>
+# Then copy the tunnel credentials JSON to cloudflared/<tunnel-id>.json
+# inside the instance folder (gitignored, never committed).
+tunnel: TUNNEL_ID
+credentials-file: /etc/cloudflared/TUNNEL_ID.json
+ingress:
+  - hostname: api.DOMAIN
+    service: http://backend:4000
+  - hostname: DOMAIN
+    service: http://frontend:3000
+  - service: http_status:404

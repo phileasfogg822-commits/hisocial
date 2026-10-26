@@ -35,11 +35,13 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # Phase 1: no setup-node npm cache. The repo has no root lockfile
+      # (locks live in backend/ and frontend/), and cache: "npm" fails
+      # without one. npm ci below uses each package's own lockfile.
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: "npm"
 
       - name: Copy env example
         run: cp .env.example .env
@@ -61,17 +63,31 @@ jobs:
         run: npm ls 2>&1 | tail -5 || true
 
       - name: Build Docker images
-        run: docker-compose build
+        run: docker compose build
 
       - name: Start services
-        run: docker-compose up -d postgres redis backend frontend
+        run: docker compose up -d postgres redis backend frontend
 
       - name: Wait for services to be ready
         run: |
-          sleep 15
-          curl -sf http://localhost:4000/ || echo "Backend not responding yet"
+          # Phase 1: retry, don't fail on the first probe. Backend
+          # startup includes DB migrations and can take well over
+          # 20s; a single curl after a fixed sleep confuses slow
+          # startup with a real crash.
+          for i in $(seq 1 24); do
+            if curl -sf http://localhost:4000/health; then
+              echo "Backend healthy after ${i} probe(s)"
+              break
+            fi
+            echo "Backend not healthy yet (probe $i/24), waiting..."
+            sleep 5
+            if [ "$i" = "24" ]; then
+              echo "Backend never became healthy"
+              exit 1
+            fi
+          done
           curl -sf http://localhost:4001/ || echo "Frontend not responding yet"
 
       - name: Show logs if failed
         if: failure()
-        run: docker-compose logs backend frontend || true
+        run: docker compose logs postgres backend frontend || true

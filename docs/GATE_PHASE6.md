@@ -92,3 +92,14 @@ short life.
 - CI verdict on the Phase 6 head is pending at the time
   of this gate-doc write; Phase 6 is accepted ONLY on a
   green run on the exact head, including the new tests.
+
+## CI verdict (added after the run)
+
+- Run `40454712107` on head `2262e60` (the code head):
+  **SUCCESS** — all steps green, including Test backend
+  and the frontend Docker build. **Phase 6 ACCEPTED on
+  `2262e60`.** Draft PR #6 created and verified (the
+  original watch was killed by a runtime restart; the
+  verdict was re-read directly from the API, as in
+  Phase 2). The confirmatory run on this gate head
+  follows the Phase 1–5 pattern.

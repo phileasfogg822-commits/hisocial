@@ -115,6 +115,7 @@ app.use('/api/monitor', require('./routes/monitorRoutes'));
 app.use('/api/linkedin-feed', require('./routes/linkedinFeed'));
 app.use('/api/analytics', require('./routes/analytics'));
 app.use('/api/alerts', require('./routes/alerts'));
+app.use('/api/monetization', require('./routes/monetization'));
 app.use('/api/media', require('./routes/media'));
 app.use('/api/autopilot', require('./routes/autopilot'));
 app.use('/api/pple', require('./routes/pple'));
@@ -560,6 +561,21 @@ async function runMigrations() {
     )`);
   await pool.query(`INSERT INTO autopilot_control (id, killed) VALUES (1, false) ON CONFLICT (id) DO NOTHING`);
   await pool.query(`ALTER TABLE ai_autopilot_configs ADD COLUMN IF NOT EXISTS consecutive_failures INTEGER NOT NULL DEFAULT 0`);
+  // Phase 24: monetization ledger.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS monetization_entries (
+      id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      kind VARCHAR(20) NOT NULL,
+      category VARCHAR(30) NOT NULL,
+      amount NUMERIC(12,2) NOT NULL,
+      currency VARCHAR(3) NOT NULL DEFAULT 'PKR',
+      platform VARCHAR(50),
+      post_id UUID REFERENCES posts(id) ON DELETE SET NULL,
+      note TEXT,
+      entry_date DATE NOT NULL DEFAULT CURRENT_DATE,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )`);
   // Phase 23: monitoring alerts.
   await pool.query(`
     CREATE TABLE IF NOT EXISTS monitoring_alerts (

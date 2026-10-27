@@ -665,6 +665,8 @@ export default function App() {
           />
         ) : view === 'analytics' ? (
           <AnalyticsView data={analyticsData} onRefresh={() => loadAnalytics(7)} onError={(msg) => notify(msg, 'error')} />
+        ) : view === 'monetization' ? (
+          <MonetizationView onNotify={(msg) => notify(msg)} onError={(msg) => notify(msg, 'error')} />
         ) : view === 'alerts' ? (
           <AlertsView onNotify={(msg) => notify(msg)} onError={(msg) => notify(msg, 'error')} />
         ) : view === 'approval' ? (
@@ -703,6 +705,103 @@ export default function App() {
 // the scheduler never publishes them. Approve publishes
 // now; a failed approval returns the post to the inbox.
 // Reject is terminal.
+function MonetizationView({ onNotify, onError }) {
+  const [entries, setEntries] = useState([]);
+  const [summary, setSummary] = useState(null);
+  const [form, setForm] = useState({ kind: 'revenue', category: 'sponsorship', amount: '', currency: 'PKR', platform: '', note: '', entry_date: '' });
+
+  const load = useCallback(async () => {
+    try {
+      const [entriesRes, summaryRes] = await Promise.all([
+        axios.get(`${API}/api/monetization`),
+        axios.get(`${API}/api/monetization/summary`),
+      ]);
+      setEntries(entriesRes.data || []);
+      setSummary(summaryRes.data || null);
+    } catch {
+      setEntries([]);
+      setSummary(null);
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const submit = async () => {
+    try {
+      await axios.post(`${API}/api/monetization`, { ...form, amount: Number(form.amount) });
+      setForm({ kind: 'revenue', category: 'sponsorship', amount: '', currency: 'PKR', platform: '', note: '', entry_date: '' });
+      await load();
+      onNotify?.('Entry recorded');
+    } catch (e) {
+      onError?.(e.response?.data?.error || 'Failed to record entry');
+    }
+  };
+
+  return (
+    <div>
+      <h2 style={styles.sectionTitle}>Monetization</h2>
+      <p style={{ color: '#666', fontSize: 13, lineHeight: 1.7, margin: '0 0 16px' }}>
+        A manual ledger, not an automated payout report: HiSocial has no payment processing and no
+        platform revenue API wired in, so what you record here is what actually came in or went
+        out. Totals never mix currencies — net is computed per currency only.
+      </p>
+      {summary && (
+        <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', marginBottom: 16 }}>
+          {Object.entries(summary.netByCurrency || {}).map(([currency, net]) => (
+            <div key={currency} style={styles.settingsCard}>
+              <div style={{ color: '#64748b', fontSize: 12 }}>Net ({currency})</div>
+              <div style={{ color: net >= 0 ? '#4ade80' : '#ef4444', fontWeight: 700, fontSize: 24 }}>{net}</div>
+            </div>
+          ))}
+        </div>
+      )}
+      <div style={styles.settingsCard}>
+        <h3 style={styles.settingsSubtitle}>Record an entry</h3>
+        <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))' }}>
+          <select style={styles.aiSelect} value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value })}>
+            <option value="revenue">Revenue</option>
+            <option value="cost">Cost</option>
+          </select>
+          <select style={styles.aiSelect} value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
+            {['sponsorship', 'affiliate', 'ad_revenue', 'subscription', 'ai_cost', 'other'].map((c) => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+          <input style={styles.aiInput} value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} placeholder="Amount" />
+          <input style={styles.aiInput} value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value })} placeholder="Currency (PKR)" />
+          <input style={styles.aiInput} value={form.platform} onChange={(e) => setForm({ ...form, platform: e.target.value })} placeholder="Platform (optional)" />
+          <input style={styles.aiInput} value={form.entry_date} onChange={(e) => setForm({ ...form, entry_date: e.target.value })} placeholder="Date YYYY-MM-DD (optional)" />
+          <input style={styles.aiInput} value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} placeholder="Note (optional)" />
+        </div>
+        <button style={{ ...styles.primaryBtn, marginTop: 12 }} onClick={submit} disabled={!form.amount}>Record entry</button>
+      </div>
+      <div style={{ display: 'grid', gap: 12, marginTop: 16 }}>
+        {entries.length === 0 ? (
+          <span style={styles.targetHint}>No entries yet.</span>
+        ) : entries.map((entry) => (
+          <div key={entry.id} style={styles.settingsCard}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+              <span style={{ color: entry.kind === 'revenue' ? '#4ade80' : '#ef4444', fontSize: 12, fontWeight: 700 }}>{entry.kind} · {entry.category}</span>
+              <span style={{ color: '#ddd', fontSize: 14, fontWeight: 700 }}>{entry.amount} {entry.currency}</span>
+            </div>
+            <div style={{ color: '#888', fontSize: 12, marginTop: 6 }}>
+              {entry.entry_date ? new Date(entry.entry_date).toLocaleDateString() : ''}{entry.platform ? ` · ${entry.platform}` : ''}{entry.note ? ` · ${entry.note}` : ''}
+            </div>
+            <button style={{ ...styles.secondaryBtn, marginTop: 8 }} onClick={async () => {
+              try {
+                await axios.delete(`${API}/api/monetization/${entry.id}`);
+                await load();
+              } catch (e) {
+                onError?.(e.response?.data?.error || 'Failed to delete entry');
+              }
+            }}>Delete</button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function AlertsView({ onNotify, onError }) {
   const [alerts, setAlerts] = useState([]);
   const [busyId, setBusyId] = useState('');
@@ -4534,6 +4633,7 @@ function Sidebar({ user, accounts, view, setView, onSwitchAccount, onLogout, con
               { id: 'approval', label: 'Approval Inbox', icon: '✅' },
               { id: 'analytics', label: 'Analytics', icon: '📊' },
               { id: 'alerts', label: 'Alerts', icon: '🔔' },
+              { id: 'monetization', label: 'Monetization', icon: '💰' },
             { id: 'groups', label: 'Groups', icon: '👥' },
             { id: 'custom-platforms', label: 'Custom Platforms', icon: '🔌' },
             { id: 'onboarding', label: 'Setup Wizard', icon: '🧭' },

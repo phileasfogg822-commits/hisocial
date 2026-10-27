@@ -116,6 +116,7 @@ app.use('/api/linkedin-feed', require('./routes/linkedinFeed'));
 app.use('/api/analytics', require('./routes/analytics'));
 app.use('/api/alerts', require('./routes/alerts'));
 app.use('/api/monetization', require('./routes/monetization'));
+app.use('/api/reports', require('./routes/reports'));
 app.use('/api/media', require('./routes/media'));
 app.use('/api/autopilot', require('./routes/autopilot'));
 app.use('/api/pple', require('./routes/pple'));

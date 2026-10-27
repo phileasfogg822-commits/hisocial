@@ -916,6 +916,9 @@ function ComposeView({
   const [pinterestBoardsAttempted, setPinterestBoardsAttempted] = useState(false);
   const [selectedPinterestBoard, setSelectedPinterestBoard] = useState('');
   const [aiProvider, setAiProvider] = useState('');
+  // Phase 15: generation language + format packs.
+  const [composeLanguage, setComposeLanguage] = useState('en');
+  const [composeFormat, setComposeFormat] = useState('post');
   const [composeImageProvider, setComposeImageProvider] = useState('');
 
   const [tone, setTone] = useState('professional');
@@ -1190,9 +1193,11 @@ function ComposeView({
         niche: niche || undefined,
         tone,
         count: 1,
-        max_length: 600,
+        max_length: composeFormat === 'script' ? 1500 : 600,
         provider: aiProvider || undefined,
         platforms: selectedPlatforms,
+        language: composeLanguage,
+        format: composeFormat,
       });
       const post = res.data?.posts?.[0] || {};
       // Handle both old (string) and new (object) formats for backward compatibility
@@ -1324,6 +1329,7 @@ function ComposeView({
         max_length: 700,
         provider: workflowAiProvider || aiProvider || undefined,
         platforms: selectedPlatforms,
+        language: composeLanguage,
       });
 
       const posts = Array.isArray(res.data?.posts) ? res.data.posts : [];
@@ -1957,6 +1963,15 @@ function ComposeView({
                   <option value="">AI Provider: Auto</option>
                   {textProviders.map((provider) => <option key={provider.id} value={provider.id}>{provider.name}</option>)}
                 </select>
+                <select style={styles.aiSelect} value={composeLanguage} onChange={(e) => setComposeLanguage(e.target.value)}>
+                  <option value="en">English</option>
+                  <option value="ur">Urdu</option>
+                </select>
+                <select style={styles.aiSelect} value={composeFormat} onChange={(e) => setComposeFormat(e.target.value)}>
+                  <option value="post">Post</option>
+                  <option value="caption">Caption</option>
+                  <option value="script">Script</option>
+                </select>
               </div>
 
               <textarea
@@ -2115,6 +2130,10 @@ function ComposeView({
               <select style={styles.aiSelect} value={workflowAiProvider} onChange={(e) => setWorkflowAiProvider(e.target.value)}>
                 <option value="">AI Provider: Auto</option>
                 {textProviders.map((provider) => <option key={provider.id} value={provider.id}>{provider.name}</option>)}
+              </select>
+              <select style={styles.aiSelect} value={composeLanguage} onChange={(e) => setComposeLanguage(e.target.value)}>
+                <option value="en">English</option>
+                <option value="ur">Urdu</option>
               </select>
               <button style={styles.primaryBtn} onClick={generateWorkflow} disabled={workflowGenerating}>{workflowGenerating ? 'Generating workflow...' : 'Generate Workflow'}</button>
 

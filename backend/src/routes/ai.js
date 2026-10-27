@@ -198,11 +198,19 @@ router.post('/generate', requireAuth, async (req, res) => {
     platforms = [],
     provider: preferredProvider = '',
     group_id = null,
-    account_id = null
+    account_id = null,
+    language = 'en',
+    format = 'post'
   } = req.body;
 
   if (!topic?.trim()) {
     return res.status(400).json({ error: 'Topic is required' });
+  }
+
+  const { validateGenerationOptions } = require('../utils/languagePacks');
+  const checkedOptions = validateGenerationOptions({ language, format });
+  if (!checkedOptions.ok) {
+    return res.status(400).json({ error: checkedOptions.error });
   }
 
   const available = getAvailableProviders().filter((provider) => provider.hasText !== false);
@@ -271,9 +279,11 @@ router.post('/generate', requireAuth, async (req, res) => {
         count: Math.min(Math.max(parseInt(count) || 3, 1), 20),
         niche: niche.trim(),
         platforms,
-        provider: provider.id
+        provider: provider.id,
+        language,
+        format
       });
-      return res.json({ posts, provider: provider.id, provider_name: provider.name });
+      return res.json({ posts, provider: provider.id, provider_name: provider.name, language, format });
     } catch (e) {
       const status = e.response?.status;
       const isQuotaError = status === 429 || status === 503 ||
@@ -897,7 +907,11 @@ router.post('/image-alibaba-debug', async (req, res) => {
   }
 });
 
-async function generatePosts({ topic, tone, emoji_level, max_length, count, niche, platforms, provider }) {
+async function generatePosts({ topic, tone, emoji_level, max_length, count, niche, platforms, provider, language = 'en', format = 'post' }) {
+  const { validateGenerationOptions } = require('../utils/languagePacks');
+  const checked = validateGenerationOptions({ language, format });
+  const pack = checked.ok ? checked.pack : { languageInstruction: 'Write entirely in English.', hashtagNote: 'Hashtags in English, relevant to the topic.' };
+  const formatSpec = checked.ok ? checked.formatSpec : { bodySpec: 'BODY should flow naturally and include the offer, value proposition, benefits, call-to-action' };
   const emojiGuide = {
     off: 'Do not use any emojis whatsoever.',
     light: 'Use 1-2 relevant emojis per post naturally.',
@@ -923,12 +937,13 @@ async function generatePosts({ topic, tone, emoji_level, max_length, count, nich
     : '';
 
   const nicheNote = niche ? `Industry/Niche: ${niche}. ` : '';
+  const languageNote = `${pack.languageInstruction} `;
 
   const systemPrompt = `You are an elite social media content strategist with 10+ years of experience creating viral content. You specialize in crafting posts that drive engagement, shares, and conversions across all major platforms.`;
 
   const userPrompt = `Create ${count} completely unique, highly engaging social media post${count > 1 ? 's' : ''} about: "${topic}"
 
-${nicheNote}${platformNote}Tone: ${toneGuide[tone] || toneGuide.professional}
+${nicheNote}${platformNote}${languageNote}Tone: ${toneGuide[tone] || toneGuide.professional}
 Emoji usage: ${emojiGuide[emoji_level] || emojiGuide.light}
 Character limit: Maximum ${max_length} characters per post.
 
@@ -940,8 +955,8 @@ HASHTAGS: [Space-separated hashtags, each starting with #, example: #social #mar
 Requirements:
 - HEADING must be exactly 7 words or fewer - make it curious, compelling, and image-friendly
 - HEADING should NOT appear in the BODY text - make them distinct and separate
-- BODY should flow naturally and include the offer, value proposition, benefits, call-to-action
-- HASHTAGS should be ONLY hashtag tokens separated by spaces, nothing else
+- ${formatSpec.bodySpec}
+- HASHTAGS should be ONLY hashtag tokens separated by spaces, nothing else. ${pack.hashtagNote}
 - Each post MUST use a completely different angle, hook, and heading
 - Write authentically — avoid generic AI-sounding phrases
 - Make posts shareable and scroll-stopping

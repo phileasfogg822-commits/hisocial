@@ -102,6 +102,7 @@ app.use('/api/groups', require('./routes/groups'));
 app.use('/api/onboarding', require('./routes/onboarding'));
 app.use('/api/meta', require('./routes/meta'));
 app.use('/api/pinterest', require('./routes/pinterest'));
+app.use('/api/custom-platforms', require('./routes/customPlatforms'));
 app.use('/api/user', require('./routes/user'));
 const postsRouter = require('./routes/posts');
 app.use('/api/posts', postsRouter);
@@ -204,6 +205,24 @@ async function runMigrations() {
       UNIQUE (user_id, name)
     )`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_account_groups_user ON account_groups (user_id)`);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS custom_platforms (
+      id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      slug TEXT NOT NULL,
+      tier VARCHAR(20) NOT NULL,
+      base_url TEXT NOT NULL,
+      post_path TEXT,
+      api_key TEXT,
+      auth_type VARCHAR(30) DEFAULT 'bearer',
+      auth_header TEXT,
+      is_active BOOLEAN DEFAULT true,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE (user_id, slug)
+    )`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_custom_platforms_user ON custom_platforms (user_id)`);
   await pool.query(`ALTER TABLE social_accounts ADD COLUMN IF NOT EXISTS group_id UUID REFERENCES account_groups(id) ON DELETE SET NULL`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_social_accounts_group ON social_accounts (group_id)`);
   await pool.query(`ALTER TABLE social_accounts DROP CONSTRAINT IF EXISTS social_accounts_user_id_platform_key`);

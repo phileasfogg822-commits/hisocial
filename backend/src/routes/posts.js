@@ -121,6 +121,15 @@ router.get('/calendar', requireAuth, async (req, res) => {
   const end = new Date(y, m, 0, 23, 59, 59).toISOString();
 
   try {
+    // Phase 17: per-group calendar filter.
+    let groupFilter = '';
+    const calParams = [req.user.id, start, end];
+    if (req.query.group_id) {
+      const own = await db.query(`SELECT id FROM account_groups WHERE id=$1 AND user_id=$2`, [req.query.group_id, req.user.id]);
+      if (!own.rows[0]) return res.status(404).json({ error: 'Group not found' });
+      calParams.push(req.query.group_id);
+      groupFilter = ` AND p.group_id = $${calParams.length}`;
+    }
     const result = await db.query(
       `SELECT p.*,
        json_agg(json_build_object(
@@ -134,10 +143,10 @@ router.get('/calendar', requireAuth, async (req, res) => {
            (p.scheduled_at >= $2 AND p.scheduled_at <= $3)
            OR (p.published_at >= $2 AND p.published_at <= $3)
            OR (p.created_at >= $2 AND p.created_at <= $3)
-         )
+         )${groupFilter}
        GROUP BY p.id
        ORDER BY COALESCE(p.scheduled_at, p.published_at, p.created_at) ASC`,
-      [req.user.id, start, end]
+      calParams
     );
     res.json(result.rows);
   } catch (e) {
@@ -494,6 +503,14 @@ router.post('/', requireAuth, async (req, res) => {
     });
   }
 
+  // Phase 17: an optional group tag, owned by this user.
+  let validatedGroupId = null;
+  if (req.body.group_id) {
+    const own = await db.query(`SELECT id FROM account_groups WHERE id=$1 AND user_id=$2`, [req.body.group_id, req.user.id]);
+    if (!own.rows[0]) return res.status(404).json({ error: 'Group not found' });
+    validatedGroupId = req.body.group_id;
+  }
+
   // If scheduled_at is in the future, save as scheduled and return immediately
   const scheduledDate = scheduled_at ? new Date(scheduled_at) : null;
   const isScheduled = scheduledDate && scheduledDate > new Date();
@@ -505,8 +522,8 @@ router.post('/', requireAuth, async (req, res) => {
          (user_id, content, platforms, media_urls, status, scheduled_at, 
           facebook_page_ids, linkedin_target_ids, reddit_subreddit,
           pinterest_board_id, generation_source, 
-          generation_batch_id, generation_index, generation_total)
-         VALUES ($1,$2,$3,$4,'scheduled',$5,$6,$7,$8,$9,$10,$11,$12,$13) 
+          generation_batch_id, generation_index, generation_total, group_id)
+         VALUES ($1,$2,$3,$4,'scheduled',$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) 
          RETURNING *`,
         [
           req.user.id,
@@ -522,6 +539,7 @@ router.post('/', requireAuth, async (req, res) => {
           generationBatchId,
           generationIndex,
           generationTotal,
+          validatedGroupId,
         ]
       );
       return res.json({ 
@@ -1902,28 +1920,76 @@ async function publishStoredPost(pool, post) {
 }
 
 // ─── Scheduler ────────────────────────────────────────────────────────────────
+// Phase 17 durable scheduler. Retries with backoff,
+// recovers crashed 'posting' rows, and never re-runs a
+// claim twice (atomic status transition). 'partial'
+// stays terminal: retrying it would duplicate the
+// platforms that already published.
+const { MAX_ATTEMPTS, STUCK_AFTER_MS, nextAttemptAfterFailure } = require('../utils/scheduler');
+
+async function recoverStuckPosts(pool) {
+  try {
+    const stuck = await pool.query(
+      `SELECT id, attempts FROM posts WHERE status='posting' AND updated_at < NOW() - ($1 || ' milliseconds')::interval`,
+      [String(STUCK_AFTER_MS)]
+    );
+    for (const post of stuck.rows) {
+      const attempts = (post.attempts || 0) + 1;
+      if (attempts >= MAX_ATTEMPTS) {
+        await pool.query(`UPDATE posts SET status='failed', attempts=$1, last_attempt_at=NOW(), updated_at=NOW() WHERE id=$2`, [attempts, post.id]);
+      } else {
+        const delay = nextAttemptAfterFailure(attempts).delayMs;
+        await pool.query(
+          `UPDATE posts SET status='scheduled', attempts=$1, last_attempt_at=NOW(), next_attempt_at=NOW() + ($2 || ' milliseconds')::interval, updated_at=NOW() WHERE id=$3`,
+          [attempts, String(delay), post.id]
+        );
+      }
+      console.log(`📅 Scheduler: recovered stuck post ${post.id} (attempt ${attempts})`);
+    }
+  } catch (e) {
+    console.error('📅 Scheduler recovery error:', e.message);
+  }
+}
+
 async function runScheduledPosts(pool) {
   try {
+    await recoverStuckPosts(pool);
     const result = await pool.query(
-      `SELECT * FROM posts WHERE status = 'scheduled' AND scheduled_at <= NOW() LIMIT 10`
+      `SELECT * FROM posts WHERE status = 'scheduled' AND scheduled_at <= NOW() AND (next_attempt_at IS NULL OR next_attempt_at <= NOW()) LIMIT 10`
     );
 
     for (const post of result.rows) {
       const claimed = await pool.query(
-        `UPDATE posts SET status='posting' WHERE id=$1 AND status='scheduled' RETURNING id`,
+        `UPDATE posts SET status='posting', updated_at=NOW() WHERE id=$1 AND status='scheduled' RETURNING id`,
         [post.id]
       );
       if (claimed.rowCount === 0) continue;
+
+      const failAttempt = async () => {
+        const attempts = (post.attempts || 0) + 1;
+        const next = nextAttemptAfterFailure(attempts);
+        if (next.terminal) {
+          await pool.query(`UPDATE posts SET status='failed', attempts=$1, last_attempt_at=NOW(), updated_at=NOW() WHERE id=$2`, [attempts, post.id]);
+        } else {
+          await pool.query(
+            `UPDATE posts SET status='scheduled', attempts=$1, last_attempt_at=NOW(), next_attempt_at=NOW() + ($2 || ' milliseconds')::interval, updated_at=NOW() WHERE id=$3`,
+            [attempts, String(next.delayMs), post.id]
+          );
+        }
+        console.log(`📅 Scheduler: post ${post.id} attempt ${attempts} failed${next.terminal ? ' (terminal)' : `, retry in ${next.delayMs}ms`}`);
+      };
 
       try {
         const latestRes = await pool.query(`SELECT * FROM posts WHERE id=$1 LIMIT 1`, [post.id]);
         if (!latestRes.rows[0]) continue;
         const publishResult = await publishStoredPost(pool, latestRes.rows[0]);
-        const finalStatus = publishResult.finalStatus;
-        console.log(`📅 Scheduler: published post ${post.id} [${finalStatus}]`);
+        // publishStoredPost already set published/partial/failed.
+        // All-failed is retried with backoff; partial stays terminal.
+        if (publishResult.finalStatus === 'failed') await failAttempt();
+        else console.log(`📅 Scheduler: published post ${post.id} [${publishResult.finalStatus}]`);
       } catch (e) {
         console.error(`📅 Scheduler: error on post ${post.id}:`, e.message);
-        await pool.query(`UPDATE posts SET status='failed' WHERE id=$1`, [post.id]);
+        await failAttempt();
       }
     }
   } catch (e) {

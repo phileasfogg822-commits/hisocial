@@ -1,6 +1,7 @@
 const express = require('express');
 const passport = require('passport');
 const { encodeOauthState, decodeOauthState, getOauthLinkedUserId } = require('../utils/oauthState');
+const { isGoogleConfigured, GOOGLE_SCOPES } = require('../utils/googleLogin');
 const router = express.Router();
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
@@ -17,7 +18,8 @@ const isConfigured = (platform) => {
     linkedin_page: process.env.LINKEDIN_ORG_CLIENT_ID,
     twitter: process.env.TWITTER_API_KEY,
     reddit: process.env.REDDIT_CLIENT_ID,
-    pinterest: process.env.PINTEREST_APP_ID
+    pinterest: process.env.PINTEREST_APP_ID,
+    google: process.env.GOOGLE_CLIENT_ID
   };
   const val = keys[platform];
   return val && !val.startsWith('your_');
@@ -56,10 +58,31 @@ router.get('/status', (req, res) => {
       linkedin: isConfigured('linkedin'),
       twitter: isConfigured('twitter'),
       reddit: isConfigured('reddit'),
-      pinterest: isConfigured('pinterest')
+      pinterest: isConfigured('pinterest'),
+      google: isGoogleConfigured(process.env)
     }
   });
 });
+
+// Google — APP login (Phase 3). Deliberately NOT behind
+// requireAppProfile: this IS the app login, so requiring an app
+// login first would be a chicken-and-egg. On success,
+// finishOAuth logs the user in and sets appAuthenticated, the
+// same as the local login. The local admin login in
+// routes/user.js is untouched and remains the fallback when
+// Google is not configured. If Google is not configured, the
+// start route redirects with a plain error instead of calling
+// passport.authenticate on an unregistered strategy.
+router.get('/google', (req, res, next) => {
+  if (!isGoogleConfigured(process.env)) {
+    return res.redirect(`${FRONTEND_URL}?error=google_not_configured`);
+  }
+  return passport.authenticate('google', { scope: GOOGLE_SCOPES })(req, res, next);
+});
+router.get('/google/callback',
+  passport.authenticate('google', { failureRedirect: `${FRONTEND_URL}?error=google_login_failed` }),
+  (req, res) => finishOAuth(req, res, req.user, 'google')
+);
 
 // Facebook
 router.get('/facebook', requireAppProfile, (req, res, next) => {

@@ -101,6 +101,7 @@ app.use('/api/accounts', require('./routes/accounts'));
 app.use('/api/groups', require('./routes/groups'));
 app.use('/api/onboarding', require('./routes/onboarding'));
 app.use('/api/meta', require('./routes/meta'));
+app.use('/api/pinterest', require('./routes/pinterest'));
 app.use('/api/user', require('./routes/user'));
 const postsRouter = require('./routes/posts');
 app.use('/api/posts', postsRouter);
@@ -225,6 +226,8 @@ async function runMigrations() {
       published_at TIMESTAMPTZ,
       facebook_page_ids TEXT[] DEFAULT '{}',
       linkedin_target_ids TEXT[] DEFAULT '{}',
+      reddit_subreddit TEXT,
+      pinterest_board_id TEXT,
       autopilot_generated BOOLEAN DEFAULT false,
       generation_source VARCHAR(30),
       generation_batch_id VARCHAR(100),
@@ -303,6 +306,8 @@ async function runMigrations() {
 
   await pool.query(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS facebook_page_ids TEXT[] DEFAULT '{}'`);
   await pool.query(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS linkedin_target_ids TEXT[] DEFAULT '{}'`);
+  await pool.query(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS reddit_subreddit TEXT`);
+  await pool.query(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS pinterest_board_id TEXT`);
   await pool.query(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS autopilot_generated BOOLEAN DEFAULT false`);
   await pool.query(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS generation_source VARCHAR(30)`);
   await pool.query(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS generation_batch_id VARCHAR(100)`);

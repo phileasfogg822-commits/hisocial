@@ -56,7 +56,7 @@ describe('schema parity (Phase 1 regression)', () => {
   it('posts has the columns runMigrations() ALTERs, in init.sql', () => {
     const postsBlock = initSql.match(/CREATE TABLE IF NOT EXISTS posts \(([\s\S]*?)\);/);
     assert.ok(postsBlock, 'init.sql has no posts table');
-    for (const column of ['facebook_page_ids', 'linkedin_target_ids', 'autopilot_generated', 'generation_source', 'generation_batch_id', 'generation_index', 'generation_total']) {
+    for (const column of ['facebook_page_ids', 'linkedin_target_ids', 'reddit_subreddit', 'pinterest_board_id', 'autopilot_generated', 'generation_source', 'generation_batch_id', 'generation_index', 'generation_total']) {
       assert.ok(postsBlock[1].includes(column), `posts missing column ${column}`);
     }
   });

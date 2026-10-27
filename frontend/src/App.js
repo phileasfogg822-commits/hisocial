@@ -3533,6 +3533,8 @@ function SettingsView({ platforms, connectedPlatforms, connectedAccountDetails, 
         </form>
       </div>
 
+      <MetaTokenHealth onConnect={onConnect} />
+
       <div style={styles.settingsCard}>
         <h3 style={styles.settingsSubtitle}>Connected Platforms</h3>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -5277,6 +5279,77 @@ function OnboardingWizard({ onConnect, onError }) {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// Phase 6: Meta token health. Before Phase 6, Facebook and
+// Instagram tokens were stored short-lived with no expiry,
+// so connections broke silently hours after setup. This
+// block shows each connection's health (ok / expiring soon
+// / expired / unknown for pre-Phase-6 connections) and
+// offers Refresh for Facebook. Instagram page tokens cannot
+// be refreshed — a broken Instagram connection must be
+// reconnected, and the block says so.
+function MetaTokenHealth({ onConnect }) {
+  const [entries, setEntries] = useState([]);
+  const [message, setMessage] = useState('');
+
+  const loadStatus = useCallback(async () => {
+    try {
+      const res = await axios.get(`${API}/api/meta/status`);
+      setEntries(res.data || []);
+    } catch (e) {
+      setMessage(e.response?.data?.error || 'Could not load Meta token health');
+    }
+  }, []);
+
+  useEffect(() => { loadStatus(); }, [loadStatus]);
+
+  const refreshFacebook = async () => {
+    setMessage('');
+    try {
+      const res = await axios.post(`${API}/api/meta/refresh`, { platform: 'facebook' });
+      setMessage(res.data.refreshed ? 'Facebook token refreshed' : (res.data.message || 'No refresh needed'));
+      await loadStatus();
+    } catch (e) {
+      setMessage(e.response?.data?.error || 'Refresh failed — reconnect Facebook if posting fails');
+      await loadStatus();
+    }
+  };
+
+  if (entries.length === 0 && !message) return null;
+
+  const statusLabel = (status) => ({
+    ok: '✓ Healthy',
+    expiring_soon: '⚠ Expiring soon',
+    expired: '✗ Expired',
+    unknown: '? Unknown (connected before expiry tracking)',
+  }[status] || status);
+
+  return (
+    <div style={styles.settingsCard}>
+      <h3 style={styles.settingsSubtitle}>Meta Token Health</h3>
+      <p style={{ color: '#94a3b8', fontSize: 13, lineHeight: 1.5 }}>
+        Facebook tokens last about 60 days once exchanged; Instagram page tokens from a long-lived
+        Facebook token do not expire. Connections made before this fix show Unknown — reconnect them
+        once and they will be tracked.
+      </p>
+      <ul style={{ paddingLeft: 18 }}>
+        {entries.map((entry) => (
+          <li key={entry.id} style={{ color: '#cbd5e1', fontSize: 13, marginBottom: 6 }}>
+            {entry.platform}: {entry.username || 'connected'} — {statusLabel(entry.status)}
+            {entry.expiresAt && ` (expires ${new Date(entry.expiresAt).toLocaleDateString()})`}
+          </li>
+        ))}
+      </ul>
+      {entries.some((e) => e.platform === 'facebook') && (
+        <button style={styles.primaryBtn} onClick={refreshFacebook}>Refresh Facebook token</button>
+      )}
+      {entries.some((e) => e.platform === 'instagram' && (e.status === 'expired' || e.status === 'unknown')) && (
+        <button style={styles.secondaryBtn} onClick={() => onConnect?.('instagram')}>Reconnect Instagram</button>
+      )}
+      {message && <p style={{ color: '#94a3b8', fontSize: 13, marginTop: 8 }}>{message}</p>}
     </div>
   );
 }

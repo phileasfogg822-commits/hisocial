@@ -474,7 +474,26 @@ router.get('/instagram/callback', async (req, res) => {
         code
       }
     });
-    const userToken = tokenRes.data.access_token;
+    const shortLivedToken = tokenRes.data.access_token;
+
+    // Phase 6: exchange for a long-lived user token BEFORE
+    // fetching pages, so the page tokens derived from it do
+    // not expire. Best-effort: on exchange failure, fall
+    // back to the short-lived token as before.
+    let userToken = shortLivedToken;
+    let tokenExpiresAt = null;
+    try {
+      const { exchangeForLongLivedToken } = require('../utils/metaTokens');
+      const exchanged = await exchangeForLongLivedToken({
+        token: shortLivedToken,
+        appId: process.env.FACEBOOK_APP_ID,
+        appSecret: process.env.FACEBOOK_APP_SECRET,
+      });
+      userToken = exchanged.accessToken;
+      tokenExpiresAt = exchanged.expiresAt;
+    } catch (e) {
+      console.error('Instagram long-lived exchange failed, using short-lived token:', e.message);
+    }
 
     // Get all pages with their Instagram business accounts
     const pagesRes = await axios.get('https://graph.facebook.com/v18.0/me/accounts', {
@@ -529,13 +548,13 @@ router.get('/instagram/callback', async (req, res) => {
       // Save Instagram
       await db.query(
         `INSERT INTO social_accounts
-         (user_id, platform, platform_user_id, platform_username, platform_display_name, platform_avatar_url, access_token)
-         VALUES ($1,'instagram',$2,$3,$4,$5,$6)
+         (user_id, platform, platform_user_id, platform_username, platform_display_name, platform_avatar_url, access_token, token_expires_at)
+         VALUES ($1,'instagram',$2,$3,$4,$5,$6,$7)
          ON CONFLICT (user_id, platform, platform_user_id) DO UPDATE SET
-         access_token=$6, platform_user_id=$2, platform_username=$3,
+         access_token=$6, token_expires_at=$7, platform_user_id=$2, platform_username=$3,
          platform_display_name=$4, platform_avatar_url=$5, updated_at=NOW()`,
         [user.id, igAccount.id, igAccount.username, igAccount.username,
-         igAccount.profile_picture_url || null, pageToken]
+         igAccount.profile_picture_url || null, pageToken, tokenExpiresAt]
       );
 
       return finishOAuth(req, res, user, 'instagram');
@@ -559,6 +578,7 @@ router.get('/instagram/callback', async (req, res) => {
         access_token: p.access_token
       })),
       userToken,
+      tokenExpiresAt,
       userId: pendingUserId,
       expires: Date.now() + 10 * 60 * 1000
     });
@@ -601,7 +621,7 @@ router.post('/instagram/confirm', async (req, res) => {
   }
 
   // Resolve accounts list — prefer token-based (cross-domain safe), fall back to session
-  let accounts, userToken, pendingUserId;
+  let accounts, userToken, pendingUserId, confirmTokenExpiresAt = null;
   if (token) {
     const pending = req.app.locals.instagramPending?.get(token);
     if (!pending || pending.expires < Date.now()) {
@@ -611,6 +631,7 @@ router.post('/instagram/confirm', async (req, res) => {
     accounts = pending.accounts;
     userToken = pending.userToken;
     pendingUserId = pending.userId;
+    confirmTokenExpiresAt = pending.tokenExpiresAt || null;
     req.app.locals.instagramPending.delete(token);
   } else if (req.session.instagramAccounts) {
     accounts = req.session.instagramAccounts;
@@ -662,13 +683,13 @@ router.post('/instagram/confirm', async (req, res) => {
     // Save Instagram
     await db.query(
       `INSERT INTO social_accounts
-       (user_id, platform, platform_user_id, platform_username, platform_display_name, platform_avatar_url, access_token)
-       VALUES ($1,'instagram',$2,$3,$4,$5,$6)
+       (user_id, platform, platform_user_id, platform_username, platform_display_name, platform_avatar_url, access_token, token_expires_at)
+       VALUES ($1,'instagram',$2,$3,$4,$5,$6,$7)
        ON CONFLICT (user_id, platform, platform_user_id) DO UPDATE SET
-       access_token=$6, platform_user_id=$2, platform_username=$3,
+       access_token=$6, token_expires_at=$7, platform_user_id=$2, platform_username=$3,
        platform_display_name=$4, platform_avatar_url=$5, updated_at=NOW()`,
       [user.id, igAccount.id, igAccount.username, igAccount.username,
-       igAccount.profile_picture_url || null, pageToken]
+       igAccount.profile_picture_url || null, pageToken, confirmTokenExpiresAt]
     );
 
     // Clear legacy session data if present

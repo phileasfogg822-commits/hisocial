@@ -3570,8 +3570,14 @@ function SettingsView({ platforms, connectedPlatforms, connectedAccountDetails, 
         provider: aiTestProvider,
         prompt: aiTestPrompt.trim() || 'Reply with one short sentence confirming the API key is working.'
       });
-      setAiTestProviderName(res.data.provider_name || aiTestProvider);
-      setAiTestResult(res.data.text || 'The provider responded successfully.');
+      // Phase 12: Muse / image-only tests answer ok:false
+      // with an honest status instead of a live result.
+      if (res.data.ok === false) {
+        setAiTestError(res.data.text || 'This provider cannot be live-tested here.');
+      } else {
+        setAiTestProviderName(res.data.provider_name || aiTestProvider);
+        setAiTestResult(res.data.text || 'The provider responded successfully.');
+      }
       if (onRefreshAiProviders) await onRefreshAiProviders();
     } catch (e) {
       setAiTestError(e.response?.data?.error || 'AI provider test failed');
@@ -3799,22 +3805,32 @@ function SettingsView({ platforms, connectedPlatforms, connectedAccountDetails, 
           </p>
           <button type="button" style={styles.secondaryBtn} onClick={onRefreshAiProviders}>Refresh providers</button>
         </div>
-        {[
-          { id: 'openai',    name: 'OpenAI GPT-4o',           key: 'OPENAI_API_KEY' },
-          { id: 'gemini',    name: 'Google Gemini Flash Latest',  key: 'GEMINI_API_KEY' },
-          { id: 'bigmodel',  name: 'BigModel GLM / CogView',  key: 'BIGMODEL_API_KEY' },
-          { id: 'deapi',     name: 'DEAPI Flux Image',        key: 'DEAPI_API_KEY' },
-          { id: 'anthropic', name: 'Anthropic Claude 3 Haiku', key: 'ANTHROPIC_API_KEY' },
-          { id: 'grok',      name: 'xAI Grok (Beta)',          key: 'GROK_API_KEY' },
-        ].map(({ id, name, key }) => {
-          const active = aiProviders.some(p => p.id === id);
+        {(aiProviders.length > 0 ? aiProviders : [
+          { id: 'muse',      name: 'Muse (Meta Muse)',       envVar: null },
+          { id: 'openai',    name: 'OpenAI GPT-4o',           envVar: 'OPENAI_API_KEY' },
+          { id: 'gemini',    name: 'Google Gemini Flash Latest',  envVar: 'GEMINI_API_KEY' },
+          { id: 'bigmodel',  name: 'BigModel GLM / CogView',  envVar: 'BIGMODEL_API_KEY' },
+          { id: 'alibaba',   name: 'Alibaba Wan2.7',          envVar: 'ALIBABA_DASHSCOPE_API_KEY' },
+          { id: 'deapi',     name: 'DEAPI Flux Image',        envVar: 'DEAPI_API_KEY' },
+          { id: 'anthropic', name: 'Anthropic Claude 3 Haiku', envVar: 'ANTHROPIC_API_KEY' },
+          { id: 'grok',      name: 'xAI Grok (Beta)',          envVar: 'GROK_API_KEY' },
+        ]).map((provider) => {
+          const active = provider.configured !== undefined ? provider.configured : aiProviders.some(p => p.id === provider.id);
+          const status = provider.lastTestStatus;
+          const statusLabel = status === 'ok' ? 'tested ✓' : status === 'failed' ? 'test failed' : status === 'unavailable' ? 'queue (Phase 14)' : status === 'untestable' ? 'verify by generating' : null;
+          const statusColor = status === 'ok' ? '#4ade80' : status === 'failed' ? '#f87171' : '#fbbf24';
           return (
-            <div key={id} style={styles.apiRow}>
+            <div key={provider.id} style={styles.apiRow}>
               <span style={{ color: active ? '#4ade80' : '#555', fontWeight: 700, fontSize: 16, lineHeight: 1 }}>
                 {active ? '●' : '○'}
               </span>
-              <span style={{ color: active ? '#ddd' : '#777', fontWeight: 600, flex: 1 }}>{name}</span>
-              <code style={styles.code}>{key}</code>
+              <span style={{ color: active ? '#ddd' : '#777', fontWeight: 600, flex: 1 }}>
+                {provider.name}{provider.preferred ? ' ★ preferred' : ''}
+              </span>
+              {statusLabel && (
+                <span style={{ color: statusColor, fontSize: 11, fontWeight: 600 }}>{statusLabel}</span>
+              )}
+              <code style={styles.code}>{provider.envVar || 'task queue'}</code>
             </div>
           );
         })}

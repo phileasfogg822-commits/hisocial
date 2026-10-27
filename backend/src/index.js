@@ -223,6 +223,14 @@ async function runMigrations() {
       UNIQUE (user_id, slug)
     )`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_custom_platforms_user ON custom_platforms (user_id)`);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ai_provider_tests (
+      provider_id TEXT PRIMARY KEY,
+      last_status VARCHAR(20) NOT NULL,
+      last_detail TEXT,
+      last_tested_at TIMESTAMPTZ,
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )`);
   await pool.query(`ALTER TABLE social_accounts ADD COLUMN IF NOT EXISTS group_id UUID REFERENCES account_groups(id) ON DELETE SET NULL`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_social_accounts_group ON social_accounts (group_id)`);
   await pool.query(`ALTER TABLE social_accounts DROP CONSTRAINT IF EXISTS social_accounts_user_id_platform_key`);

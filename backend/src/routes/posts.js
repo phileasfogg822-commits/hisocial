@@ -376,6 +376,7 @@ router.post('/', requireAuth, async (req, res) => {
     reddit_subreddit,
     pinterest_board_id,
     scheduled_at,
+    language,
     generation_source = 'manual',
     generation_batch_id,
     generation_index = 1,
@@ -496,6 +497,15 @@ router.post('/', requireAuth, async (req, res) => {
     }
   }
 
+  // Phase 22: optional post language, en/ur only.
+  let validatedLanguage = null;
+  if (language !== undefined && language !== null && language !== '') {
+    if (language !== 'en' && language !== 'ur') {
+      return res.status(400).json({ error: "language must be 'en' or 'ur'" });
+    }
+    validatedLanguage = language;
+  }
+
   // Traditional post flow continues for non-AI posts
   if (!content) {
     return res.status(400).json({ 
@@ -539,8 +549,8 @@ router.post('/', requireAuth, async (req, res) => {
          (user_id, content, platforms, media_urls, status, scheduled_at, 
           facebook_page_ids, linkedin_target_ids, reddit_subreddit,
           pinterest_board_id, generation_source, 
-          generation_batch_id, generation_index, generation_total, group_id, requires_approval)
-         VALUES ($1,$2,$3,$4,'scheduled',$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) 
+          generation_batch_id, generation_index, generation_total, group_id, requires_approval, language)
+         VALUES ($1,$2,$3,$4,'scheduled',$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) 
          RETURNING *`,
         [
           req.user.id,
@@ -558,6 +568,7 @@ router.post('/', requireAuth, async (req, res) => {
           generationTotal,
           validatedGroupId,
           Boolean(req.body.requires_approval),
+          validatedLanguage,
         ]
       );
       return res.json({ 
@@ -628,8 +639,8 @@ router.post('/', requireAuth, async (req, res) => {
          (user_id, content, platforms, media_urls, status, facebook_page_ids, 
           linkedin_target_ids, reddit_subreddit, pinterest_board_id,
           generation_source, generation_batch_id, 
-          generation_index, generation_total)
-         VALUES ($1,$2,$3,$4,'posting',$5,$6,$7,$8,$9,$10,$11,$12) 
+          generation_index, generation_total, language)
+         VALUES ($1,$2,$3,$4,'posting',$5,$6,$7,$8,$9,$10,$11,$12,$13) 
          RETURNING *`,
       [
         req.user.id,
@@ -644,6 +655,7 @@ router.post('/', requireAuth, async (req, res) => {
         generationBatchId,
         generationIndex,
         generationTotal,
+        validatedLanguage,
       ]
     );
     const post = postResult.rows[0];

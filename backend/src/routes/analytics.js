@@ -280,4 +280,58 @@ router.post('/snapshots/build', requireAuth, async (req, res) => {
   }
 });
 
+// Phase 22: insights comparisons. One dimension at
+// a time — language, group, or platform — over the
+// user's own posting record. Platform demographics
+// (age/gender/location) are NOT here: no platform
+// Insights API is wired in this codebase, so none
+// are claimed.
+router.get('/compare', requireAuth, async (req, res) => {
+  const db = req.app.locals.db;
+  const dimension = req.query.dimension || 'platform';
+  if (!['language', 'group', 'platform'].includes(dimension)) {
+    return res.status(400).json({ error: 'dimension must be language, group, or platform' });
+  }
+  const days = Math.min(Math.max(parseInt(req.query.days, 10) || 30, 1), 365);
+  try {
+    const result = await db.query(
+      `SELECT p.id AS post_id, p.language, g.name AS group_name, p.platforms,
+              pp.platform AS pp_platform, pp.status AS pp_status
+       FROM posts p
+       LEFT JOIN account_groups g ON g.id = p.group_id
+       LEFT JOIN platform_posts pp ON pp.post_id = p.id
+       WHERE p.user_id=$1 AND p.created_at >= NOW() - ($2::text || ' days')::interval`,
+      [req.user.id, days]
+    );
+    const { comparePosts } = require('../utils/insights');
+    res.json({ dimension, days, rows: comparePosts(result.rows, dimension) });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Phase 22: audience overview from stored accounts
+// only — connected accounts per platform and per
+// group. No follower counts: social_accounts has no
+// follower column, and none is invented.
+router.get('/audience', requireAuth, async (req, res) => {
+  const db = req.app.locals.db;
+  try {
+    const byPlatform = await db.query(
+      `SELECT platform, COUNT(*)::int AS accounts FROM social_accounts
+       WHERE user_id=$1 AND is_active = true GROUP BY platform ORDER BY platform`,
+      [req.user.id]
+    );
+    const byGroup = await db.query(
+      `SELECT COALESCE(g.name, 'ungrouped') AS group_name, COUNT(*)::int AS accounts
+       FROM social_accounts sa LEFT JOIN account_groups g ON g.id = sa.group_id
+       WHERE sa.user_id=$1 AND sa.is_active = true GROUP BY g.name ORDER BY g.name`,
+      [req.user.id]
+    );
+    res.json({ by_platform: byPlatform.rows, by_group: byGroup.rows });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 module.exports = router;

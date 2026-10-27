@@ -5503,6 +5503,24 @@ function AnalyticsView({ data, onRefresh, onError }) {
   }, []);
 
   useEffect(() => { loadSnapshots(); }, [loadSnapshots]);
+  // Phase 22: insights comparisons + audience.
+  const [compareDimension, setCompareDimension] = useState('platform');
+  const [compareRows, setCompareRows] = useState([]);
+  const [audience, setAudience] = useState(null);
+
+  const loadCompare = useCallback(async (dimension) => {
+    try {
+      const res = await axios.get(`${API}/api/analytics/compare`, { params: { dimension, days: 30 } });
+      setCompareRows(res.data?.rows || []);
+    } catch {
+      setCompareRows([]);
+    }
+  }, []);
+
+  useEffect(() => { loadCompare(compareDimension); }, [compareDimension, loadCompare]);
+  useEffect(() => {
+    axios.get(`${API}/api/analytics/audience`).then((res) => setAudience(res.data)).catch(() => setAudience(null));
+  }, []);
 
   const refresh = async () => {
     setLoading(true);
@@ -5581,6 +5599,49 @@ function AnalyticsView({ data, onRefresh, onError }) {
             </div>
           ))}
         </div>
+      </div>
+
+      <div style={styles.settingsCard}>
+        <h3 style={styles.settingsSubtitle}>Insights: Compare (last 30 days)</h3>
+        <p style={{ color: '#64748b', fontSize: 12, lineHeight: 1.6, margin: '0 0 10px' }}>
+          Your own posting record, compared by platform, language, or group. Platform demographics
+          (age, gender, location) are not shown — no platform Insights API is wired in yet, so none
+          are invented here.
+        </p>
+        <select style={styles.aiSelect} value={compareDimension} onChange={(e) => setCompareDimension(e.target.value)}>
+          <option value="platform">By platform</option>
+          <option value="language">By language (English vs Urdu)</option>
+          <option value="group">By group</option>
+        </select>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12 }}>
+          {compareRows.length === 0 ? (
+            <div style={{ color: '#64748b', fontSize: 13 }}>No posts in the last 30 days.</div>
+          ) : compareRows.map((row) => (
+            <div key={row.key} style={{ display: 'grid', gridTemplateColumns: '1.2fr repeat(3, 1fr)', gap: 8, padding: '8px 10px', border: '1px solid #1f2937', borderRadius: 8 }}>
+              <span style={{ color: '#ddd', fontSize: 12, fontWeight: 700 }}>{row.key}</span>
+              <span style={{ color: '#ddd', fontSize: 12 }}>Created: {row.posts_created || 0}</span>
+              <span style={{ color: '#ddd', fontSize: 12 }}>Published: {row.published || 0}</span>
+              <span style={{ color: '#ddd', fontSize: 12 }}>Failed: {row.failed || 0}</span>
+            </div>
+          ))}
+        </div>
+        {audience && (
+          <div style={{ marginTop: 16 }}>
+            <h4 style={{ color: '#ddd', fontSize: 13, margin: '0 0 8px' }}>Audience: connected accounts</h4>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {audience.by_platform.map((row) => (
+                <span key={row.platform} style={{ color: '#ddd', fontSize: 12, border: '1px solid #1f2937', borderRadius: 8, padding: '6px 10px' }}>
+                  {PLATFORM_META[row.platform]?.name || row.platform}: {row.accounts}
+                </span>
+              ))}
+              {audience.by_group.map((row) => (
+                <span key={row.group_name} style={{ color: '#ddd', fontSize: 12, border: '1px solid #1f2937', borderRadius: 8, padding: '6px 10px' }}>
+                  {row.group_name}: {row.accounts}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       <div style={styles.settingsCard}>

@@ -83,3 +83,15 @@ Phase 22 closed head `f133792`. PR base:
   time of this gate-doc write; Phase 23 is accepted
   ONLY on a green run on the exact head, including
   the new tests.
+
+## CI verdict (added after the run)
+
+- Run `40567148954` on head `718e72a` (the code
+  head): **SUCCESS** — all steps green, including
+  Test backend and the frontend Docker build.
+  **Phase 23 ACCEPTED on `718e72a`.** Draft PR #23
+  created and verified. The confirmatory run on
+  this gate head follows the Phase 1–22 pattern.
+  (One watch poll hit the anonymous API rate limit
+  and recovered on the next poll; the verdict
+  itself is from the API, not assumed.)

@@ -103,3 +103,12 @@ closed head `efb0546`. PR base:
   time of this gate-doc write; Phase 14 is accepted
   ONLY on a green run on the exact head, including
   the new tests.
+
+## CI verdict (added after the run)
+
+- Run `40504913211` on head `84c17cb` (the code
+  head): **SUCCESS** — all steps green, including
+  Test backend and the frontend Docker build.
+  **Phase 14 ACCEPTED on `84c17cb`.** Draft PR #14
+  created and verified. The confirmatory run on
+  this gate head follows the Phase 1–13 pattern.

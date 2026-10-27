@@ -144,8 +144,14 @@ router.get('/linkedin-org', requireAppProfile, (req, res) => {
   }
 
   const callbackUrl = process.env.LINKEDIN_ORG_CALLBACK_URL || 'http://localhost:4000/auth/linkedin-org/callback';
-  // Community Management API only grants w_organization_social for posting
-  const scopes = ['w_organization_social'];
+  // Phase 7: w_organization_social alone cannot discover
+  // admin'd pages — organizationAcls needs a read scope.
+  // Requesting only the posting scope was why the old
+  // callback silently stored a bogus 'pages' account. The
+  // app needs the Community Management product with admin
+  // read; if it lacks it, consent fails visibly instead
+  // of storing a row that can never post.
+  const scopes = ['rw_organization_admin', 'w_organization_social'];
 
   const params = new URLSearchParams({
     response_type: 'code',
@@ -201,59 +207,42 @@ router.get('/linkedin-org/callback', async (req, res) => {
     const grantedScope = String(tokenRes.data.scope || '').trim();
     console.log('LinkedIn Org granted scopes:', grantedScope || '(none)');
 
-    // Fetch managed organizations using the org token
-    let orgName = 'LinkedIn Pages';
-    let orgId = 'pages';
-    try {
-      const aclRes = await axios.get('https://api.linkedin.com/v2/organizationAcls', {
-        params: {
-          q: 'roleAssignee',
-          role: 'ADMINISTRATOR',
-          projection: '(elements*(organization~(localizedName,vanityName)))'
-        },
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'X-Restli-Protocol-Version': '2.0.0'
-        }
-      });
-
-      const elements = aclRes.data?.elements || [];
-      const desiredCompanyId = String(process.env.LINKEDIN_COMPANY_ID || '').trim();
-      const orgs = elements.map((el) => {
-        const urnId = typeof el.organization === 'string' ? el.organization.split(':').pop() : null;
-        const orgProfile = el['organization~'] || {};
-        return { id: urnId, name: orgProfile.localizedName || orgProfile.vanityName || urnId };
-      }).filter((o) => Boolean(o.id));
-
-      console.log('LinkedIn Org: found organizations:', orgs.map((o) => `${o.name}:${o.id}`).join(', ') || '(none)');
-
-      const target = desiredCompanyId
-        ? orgs.find((o) => o.id === desiredCompanyId) || orgs[0]
-        : orgs[0];
-
-      if (target) {
-        orgId = target.id;
-        orgName = target.name;
-        console.log('LinkedIn Org: using organization:', orgName, orgId);
-      }
-    } catch (aclErr) {
-      console.warn('LinkedIn Org ACL lookup failed:', aclErr.response?.data || aclErr.message);
+    // Phase 7: discover admin'd organizations with the
+    // shared helper, then store ONE linkedin_page row per
+    // org (Phase 4 multi-account). A connect that
+    // discovers no orgs FAILS VISIBLY now — the old code
+    // stored a bogus 'pages' row and redirected as if it
+    // had succeeded, which is exactly why company posting
+    // failed afterwards. A LINKEDIN_COMPANY_ID preference
+    // that is not admin'd is also an error, not a silent
+    // fallback to a different org.
+    const { selectOrgs } = require('../utils/linkedin');
+    const discovered = await fetchManagedLinkedInOrganizations(accessToken);
+    console.log('LinkedIn Org: found organizations:', discovered.map((o) => `${o.localizedName || o.id}:${o.id}`).join(', ') || '(none)');
+    const { orgs, error: selectError } = selectOrgs(discovered, process.env.LINKEDIN_COMPANY_ID);
+    if (selectError || orgs.length === 0) {
+      const message = selectError || 'No administered LinkedIn organizations found for this account. Make sure the app has organization admin access and the account administers a page.';
+      console.error('LinkedIn Org connect refused:', message);
+      return res.redirect(`${FRONTEND_URL}?error=linkedin_org_no_admin_org&msg=${encodeURIComponent(message)}`);
     }
 
-    // Store as 'linkedin_page' for the currently logged-in user
-    await db.query(
-      `INSERT INTO social_accounts
-       (user_id, platform, platform_user_id, platform_username, platform_display_name, platform_avatar_url, access_token, scope)
-       VALUES ($1,'linkedin_page',$2,$3,$4,$5,$6,$7)
-       ON CONFLICT (user_id, platform, platform_user_id) DO UPDATE SET
-       access_token=$6,
-       scope=$7,
-       platform_user_id=$2,
-       platform_username=$3,
-       platform_display_name=$4,
-       updated_at=NOW()`,
-      [req.user.id, orgId, orgName, orgName, null, accessToken, grantedScope || null]
-    );
+    // Store as 'linkedin_page' rows for the currently logged-in user
+    for (const org of orgs) {
+      const orgName = org.localizedName || org.vanityName || org.id;
+      await db.query(
+        `INSERT INTO social_accounts
+         (user_id, platform, platform_user_id, platform_username, platform_display_name, platform_avatar_url, access_token, scope)
+         VALUES ($1,'linkedin_page',$2,$3,$4,$5,$6,$7)
+         ON CONFLICT (user_id, platform, platform_user_id) DO UPDATE SET
+         access_token=$6,
+         scope=$7,
+         platform_user_id=$2,
+         platform_username=$3,
+         platform_display_name=$4,
+         updated_at=NOW()`,
+        [req.user.id, org.id, org.vanityName || org.id, orgName, null, accessToken, grantedScope || null]
+      );
+    }
 
     res.redirect(`${FRONTEND_URL}?connected=linkedin_page`);
   } catch (e) {
@@ -318,24 +307,15 @@ router.get('/linkedin/callback', async (req, res) => {
       `${profile.given_name || ''} ${profile.family_name || ''}`.trim() ||
       'LinkedIn User';
 
-    const desiredCompanyId = String(process.env.LINKEDIN_COMPANY_ID || '').trim() || '105676582';
-    let linkedInTargetUserId = linkedInId;
-    let linkedInTargetUsername = profile.email || linkedInId;
-    let linkedInTargetDisplayName = displayName;
-
-    const managedOrganizations = await fetchManagedLinkedInOrganizations(accessToken);
-    const selectedOrganization = managedOrganizations.find((org) => org.id === desiredCompanyId);
-    if (selectedOrganization) {
-      linkedInTargetUserId = `organization:${selectedOrganization.id}`;
-      linkedInTargetUsername = selectedOrganization.vanityName || selectedOrganization.id;
-      linkedInTargetDisplayName = selectedOrganization.localizedName || selectedOrganization.vanityName || selectedOrganization.id;
-      console.log('LinkedIn connected to organization:', linkedInTargetDisplayName, selectedOrganization.id);
-    } else if (desiredCompanyId) {
-      console.warn('Configured LinkedIn company not found in admin organizations:', desiredCompanyId);
-      if (managedOrganizations.length > 0) {
-        console.log('Available LinkedIn organizations:', managedOrganizations.map((org) => `${org.localizedName || org.id}:${org.id}`).join(', '));
-      }
-    }
+    // Phase 7: a personal connect ALWAYS stores the person
+    // id. The old code replaced it with an organization id
+    // when a hardcoded default company happened to be
+    // admin'd, corrupting personal posting. Company pages
+    // are the separate linkedin_page flow (Phase 7 org
+    // callback), never mixed into the personal row.
+    const linkedInTargetUserId = linkedInId;
+    const linkedInTargetUsername = profile.email || linkedInId;
+    const linkedInTargetDisplayName = displayName;
 
     const oauthUserId = getOauthLinkedUserId(req);
     let user = null;
@@ -402,19 +382,8 @@ async function fetchManagedLinkedInOrganizations(accessToken) {
       }
     });
 
-    const elements = aclRes.data?.elements || [];
-    return elements
-      .map((element) => {
-        const organizationUrn = element.organization;
-        const id = typeof organizationUrn === 'string' ? organizationUrn.split(':').pop() : null;
-        const orgProfile = element['organization~'] || {};
-        return {
-          id,
-          localizedName: orgProfile.localizedName,
-          vanityName: orgProfile.vanityName
-        };
-      })
-      .filter((org) => Boolean(org.id));
+    const { parseAclElements } = require('../utils/linkedin');
+    return parseAclElements(aclRes.data?.elements || []);
   } catch (error) {
     console.warn('LinkedIn organization lookup failed:', error.response?.data || error.message);
     return [];

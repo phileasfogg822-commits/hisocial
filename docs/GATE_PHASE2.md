@@ -93,3 +93,21 @@ rather than silently resolved.
 - CI verdict on the Phase 2 head is pending at the time of
   this gate-doc write; Phase 2 is accepted ONLY on a green
   run on the exact head, including the new `Test backend` step.
+
+## CI GREEN on the Phase 2 head — Phase 2's proof
+
+- Run `40413275910` on head `b9ea3e8` completed with
+  conclusion `success`. Every step succeeded, including the
+  new `Test backend` step and the Docker `/health` check.
+  This proves the harness runs in CI (not just locally) and
+  that the widened push trigger works: the run fired on the
+  `phase-2-test-harness` push itself, before any PR existed.
+- Phase 2 is therefore ACCEPTED on `b9ea3e8` for its scope.
+  The gate-doc update itself is the only change after this
+  head, and its CI run must also go green before the phase
+  is called fully closed.
+- Note: the earlier CI watch for this run was lost to a
+  runtime restart, so the verdict was re-read directly from
+  the Actions API on 2026-10-27 ~06:08 PKT — the run id,
+  head, and step list above are that re-read, not the lost
+  watch's output.

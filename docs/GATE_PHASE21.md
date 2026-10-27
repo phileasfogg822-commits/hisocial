@@ -79,3 +79,12 @@ Branch: `phase-21-daily-snapshots`, cut from Phase
   time of this gate-doc write; Phase 21 is accepted
   ONLY on a green run on the exact head, including
   the new tests.
+
+## CI verdict (added after the run)
+
+- Run `40561620986` on head `465e0e4` (the code
+  head): **SUCCESS** — all steps green, including
+  Test backend and the frontend Docker build.
+  **Phase 21 ACCEPTED on `465e0e4`.** Draft PR #21
+  created and verified. The confirmatory run on
+  this gate head follows the Phase 1–20 pattern.

@@ -75,3 +75,15 @@ cut from Phase 15 closed head `c7c8a30`. PR base:
   time of this gate-doc write; Phase 16 is accepted
   ONLY on a green run on the exact head, including
   the new tests.
+
+## CI verdict (added after the run)
+
+- Run `40514159859` on head `65f7726` (the code
+  head): **SUCCESS** — all steps green, including
+  Test backend and the frontend Docker build.
+  **Phase 16 ACCEPTED on `65f7726`.** Draft PR #16
+  created and verified (the first creation attempt
+  died on a runtime restart; the open-PR list was
+  re-checked and the PR was created cleanly, no
+  duplicate). The confirmatory run on this gate
+  head follows the Phase 1–15 pattern.

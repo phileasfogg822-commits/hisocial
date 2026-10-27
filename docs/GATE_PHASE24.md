@@ -74,3 +74,12 @@ Branch: `phase-24-monetization`, cut from Phase
   time of this gate-doc write; Phase 24 is accepted
   ONLY on a green run on the exact head, including
   the new tests.
+
+## CI verdict (added after the run)
+
+- Run `40570370280` on head `d853cb0` (the code
+  head): **SUCCESS** — all steps green, including
+  Test backend and the frontend Docker build.
+  **Phase 24 ACCEPTED on `d853cb0`.** Draft PR #24
+  created and verified. The confirmatory run on
+  this gate head follows the Phase 1–23 pattern.

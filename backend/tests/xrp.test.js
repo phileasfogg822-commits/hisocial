@@ -103,6 +103,22 @@ describe('xrp wiring (static)', () => {
     assert.match(indexJs, /routes\/pinterest/);
   });
 
+  it('every relative require in backend routes resolves to a real file', () => {
+    // Regression guard for the first Phase 10 head: the
+    // new pinterest route required a middleware/auth
+    // module that does not exist, the backend crashed at
+    // startup, and CI failed in "Wait for services".
+    const routesDir = path.join(__dirname, '..', 'src', 'routes');
+    for (const file of fs.readdirSync(routesDir).filter((f) => f.endsWith('.js'))) {
+      const src = fs.readFileSync(path.join(routesDir, file), 'utf8');
+      for (const match of src.matchAll(/require\(['"](\.[^'"]+)['"]\)/g)) {
+        const target = path.resolve(routesDir, match[1]);
+        const ok = fs.existsSync(target) || fs.existsSync(`${target}.js`) || fs.existsSync(path.join(target, 'index.js'));
+        assert.ok(ok, `${file} requires missing ${match[1]}`);
+      }
+    }
+  });
+
   it('compose carries subreddit and board fields', () => {
     assert.match(frontendJs, /redditSubreddit/);
     assert.match(frontendJs, /api\/pinterest\/boards/);

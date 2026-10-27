@@ -4,7 +4,15 @@
 // of always landing on the first one.
 const express = require('express');
 const axios = require('axios');
-const { requireProfile } = require('../middleware/auth');
+
+// Same local guard as meta.js / groups.js: this codebase
+// has no shared middleware/auth module, and requiring
+// one crashed backend startup (CI "Wait for services"
+// failure on the first Phase 10 head).
+const requireProfile = (req, res, next) => {
+  if (!req.user) return res.status(401).json({ error: 'No profile selected' });
+  next();
+};
 
 const router = express.Router();
 

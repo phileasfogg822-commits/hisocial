@@ -91,3 +91,12 @@ act on.
 - CI verdict on the Phase 5 head is pending at the time
   of this gate-doc write; Phase 5 is accepted ONLY on a
   green run on the exact head, including the new tests.
+
+## CI verdict (added after the run)
+
+- Run `40453027213` on head `d2f604a` (the code head):
+  **SUCCESS** — all steps green, including Test backend
+  and the frontend Docker build. **Phase 5 ACCEPTED on
+  `d2f604a`.** Draft PR #5 created and verified. The
+  confirmatory run on this gate head follows the
+  Phase 1–4 pattern.

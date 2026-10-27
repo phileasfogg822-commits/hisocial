@@ -522,8 +522,8 @@ router.post('/', requireAuth, async (req, res) => {
          (user_id, content, platforms, media_urls, status, scheduled_at, 
           facebook_page_ids, linkedin_target_ids, reddit_subreddit,
           pinterest_board_id, generation_source, 
-          generation_batch_id, generation_index, generation_total, group_id)
-         VALUES ($1,$2,$3,$4,'scheduled',$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) 
+          generation_batch_id, generation_index, generation_total, group_id, requires_approval)
+         VALUES ($1,$2,$3,$4,'scheduled',$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) 
          RETURNING *`,
         [
           req.user.id,
@@ -540,6 +540,7 @@ router.post('/', requireAuth, async (req, res) => {
           generationIndex,
           generationTotal,
           validatedGroupId,
+          Boolean(req.body.requires_approval),
         ]
       );
       return res.json({ 
@@ -1919,6 +1920,77 @@ async function publishStoredPost(pool, post) {
   };
 }
 
+// ─── Approval inbox ─────────────────────────────────────────────────────────
+// Phase 18: supervised publishing. A post created with
+// requires_approval waits in 'awaiting_approval' once
+// due; the scheduler never publishes it. Approve
+// publishes it now; a failed approval returns it to
+// the inbox (manual retry after fixing the cause —
+// e.g. reconnecting a token), it never auto-retries
+// into a publish the user did not approve. Reject is
+// terminal and keeps the post visible in history.
+router.get('/approval', requireAuth, async (req, res) => {
+  const db = req.app.locals.db;
+  try {
+    const result = await db.query(
+      `SELECT * FROM posts WHERE user_id=$1 AND status='awaiting_approval' ORDER BY scheduled_at ASC NULLS LAST, created_at ASC`,
+      [req.user.id]
+    );
+    res.json(result.rows);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.post('/:postId/approve', requireAuth, async (req, res) => {
+  const db = req.app.locals.db;
+  try {
+    const current = await db.query(`SELECT * FROM posts WHERE id=$1 AND user_id=$2`, [req.params.postId, req.user.id]);
+    const post = current.rows[0];
+    if (!post) return res.status(404).json({ error: 'Post not found' });
+    if (post.status !== 'awaiting_approval') return res.status(409).json({ error: 'Only posts awaiting approval can be approved' });
+    const claimed = await db.query(
+      `UPDATE posts SET status='posting', updated_at=NOW() WHERE id=$1 AND status='awaiting_approval' RETURNING id`,
+      [post.id]
+    );
+    if (claimed.rowCount === 0) return res.status(409).json({ error: 'Post was already decided' });
+    try {
+      const latestRes = await db.query(`SELECT * FROM posts WHERE id=$1 LIMIT 1`, [post.id]);
+      const publishResult = await publishStoredPost(db, latestRes.rows[0]);
+      if (publishResult.finalStatus === 'failed') {
+        await db.query(
+          `UPDATE posts SET status='awaiting_approval', attempts=attempts+1, last_attempt_at=NOW(), updated_at=NOW() WHERE id=$1`,
+          [post.id]
+        );
+        return res.json({ post: { ...post, status: 'awaiting_approval' }, results: publishResult.results, finalStatus: 'failed' });
+      }
+      return res.json({ post: publishResult.post, results: publishResult.results, finalStatus: publishResult.finalStatus });
+    } catch (e) {
+      await db.query(
+        `UPDATE posts SET status='awaiting_approval', attempts=attempts+1, last_attempt_at=NOW(), updated_at=NOW() WHERE id=$1`,
+        [post.id]
+      );
+      return res.status(500).json({ error: e.message });
+    }
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.post('/:postId/reject', requireAuth, async (req, res) => {
+  const db = req.app.locals.db;
+  try {
+    const result = await db.query(
+      `UPDATE posts SET status='rejected', updated_at=NOW() WHERE id=$1 AND user_id=$2 AND status='awaiting_approval' RETURNING *`,
+      [req.params.postId, req.user.id]
+    );
+    if (!result.rows[0]) return res.status(409).json({ error: 'Only posts awaiting approval can be rejected' });
+    res.json({ post: result.rows[0] });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ─── Scheduler ────────────────────────────────────────────────────────────────
 // Phase 17 durable scheduler. Retries with backoff,
 // recovers crashed 'posting' rows, and never re-runs a
@@ -1954,8 +2026,14 @@ async function recoverStuckPosts(pool) {
 async function runScheduledPosts(pool) {
   try {
     await recoverStuckPosts(pool);
+    // Phase 18: supervised posts whose time has come move
+    // to the approval inbox; they are never auto-published.
+    await pool.query(
+      `UPDATE posts SET status='awaiting_approval', updated_at=NOW()
+       WHERE status='scheduled' AND requires_approval = true AND scheduled_at <= NOW()`
+    );
     const result = await pool.query(
-      `SELECT * FROM posts WHERE status = 'scheduled' AND scheduled_at <= NOW() AND (next_attempt_at IS NULL OR next_attempt_at <= NOW()) LIMIT 10`
+      `SELECT * FROM posts WHERE status = 'scheduled' AND requires_approval = false AND scheduled_at <= NOW() AND (next_attempt_at IS NULL OR next_attempt_at <= NOW()) LIMIT 10`
     );
 
     for (const post of result.rows) {

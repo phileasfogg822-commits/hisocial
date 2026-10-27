@@ -312,6 +312,7 @@ async function runMigrations() {
       scheduled_at TIMESTAMPTZ,
       published_at TIMESTAMPTZ,
       group_id UUID REFERENCES account_groups(id) ON DELETE SET NULL,
+      requires_approval BOOLEAN NOT NULL DEFAULT false,
       attempts INTEGER NOT NULL DEFAULT 0,
       last_attempt_at TIMESTAMPTZ,
       next_attempt_at TIMESTAMPTZ,
@@ -391,6 +392,7 @@ async function runMigrations() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_posts_scheduled ON posts (status, scheduled_at) WHERE status = 'scheduled'`);
   // Phase 17: durable scheduler + per-group calendar columns.
   await pool.query(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS group_id UUID REFERENCES account_groups(id) ON DELETE SET NULL`);
+  await pool.query(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS requires_approval BOOLEAN NOT NULL DEFAULT false`);
   await pool.query(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0`);
   await pool.query(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS last_attempt_at TIMESTAMPTZ`);
   await pool.query(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS next_attempt_at TIMESTAMPTZ`);

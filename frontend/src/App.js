@@ -665,6 +665,8 @@ export default function App() {
           />
         ) : view === 'analytics' ? (
           <AnalyticsView data={analyticsData} onRefresh={() => loadAnalytics(7)} onError={(msg) => notify(msg, 'error')} />
+        ) : view === 'approval' ? (
+          <ApprovalInboxView onNotify={(msg) => notify(msg)} onError={(msg) => notify(msg, 'error')} />
         ) : view === 'groups' ? (
           <GroupsView onNotify={(msg) => notify(msg)} onError={(msg) => notify(msg, 'error')} />
         ) : view === 'custom-platforms' ? (
@@ -689,6 +691,76 @@ export default function App() {
           />
         )}
       </main>
+    </div>
+  );
+}
+
+// ─── Approval Inbox ─────────────────────────────────────────────────────────
+// Phase 18: supervised publishing. Posts whose scheduled
+// time has come but which require approval wait here;
+// the scheduler never publishes them. Approve publishes
+// now; a failed approval returns the post to the inbox.
+// Reject is terminal.
+function ApprovalInboxView({ onNotify, onError }) {
+  const [posts, setPosts] = useState([]);
+  const [busyId, setBusyId] = useState('');
+
+  const load = useCallback(async () => {
+    try {
+      const res = await axios.get(`${API}/api/posts/approval`);
+      setPosts(res.data || []);
+    } catch {
+      setPosts([]);
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const decide = async (post, action) => {
+    setBusyId(post.id);
+    try {
+      const res = await axios.post(`${API}/api/posts/${post.id}/${action}`);
+      if (action === 'approve' && res.data?.finalStatus === 'failed') {
+        onError?.('Publish failed — the post stays in the inbox so you can fix the cause and retry');
+      } else {
+        onNotify?.(action === 'approve' ? 'Post approved and published' : 'Post rejected');
+      }
+      await load();
+    } catch (e) {
+      onError?.(e.response?.data?.error || `Failed to ${action} post`);
+    }
+    setBusyId('');
+  };
+
+  return (
+    <div>
+      <h2 style={styles.sectionTitle}>Approval Inbox</h2>
+      <p style={{ color: '#666', fontSize: 13, lineHeight: 1.7, margin: '0 0 16px' }}>
+        Posts that reached their scheduled time but require your approval. Nothing here publishes
+        on its own — approve to publish now, reject to drop it.
+      </p>
+      <button style={styles.secondaryBtn} onClick={load}>Refresh</button>
+      <div style={{ display: 'grid', gap: 12, marginTop: 16 }}>
+        {posts.length === 0 ? (
+          <span style={styles.targetHint}>Nothing awaiting approval.</span>
+        ) : posts.map((post) => (
+          <div key={post.id} style={styles.settingsCard}>
+            <div style={{ color: '#ddd', fontSize: 14, lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{post.content}</div>
+            <div style={{ color: '#888', fontSize: 12, marginTop: 8 }}>
+              Was due: {post.scheduled_at ? new Date(post.scheduled_at).toLocaleString() : '—'}
+              {' · '}Platforms: {(post.platforms || []).join(', ') || '—'}
+              {post.attempts > 0 ? ` · Failed approvals: ${post.attempts}` : ''}
+            </div>
+            {post.media_urls?.length > 0 && (
+              <img src={post.media_urls[0]} alt="" style={{ width: '100%', maxWidth: 320, borderRadius: 8, marginTop: 8 }} />
+            )}
+            <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+              <button style={styles.primaryBtn} disabled={busyId === post.id} onClick={() => decide(post, 'approve')}>Approve & Publish</button>
+              <button style={styles.secondaryBtn} disabled={busyId === post.id} onClick={() => decide(post, 'reject')}>Reject</button>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -2674,6 +2746,8 @@ function CalendarView({ posts, onLoadMonth, platforms = [], connectedPlatforms =
   const [calendarGroups, setCalendarGroups] = useState([]);
   const [calendarGroupId, setCalendarGroupId] = useState('');
   const [draftGroupId, setDraftGroupId] = useState('');
+  // Phase 18: supervised draft flag.
+  const [draftRequiresApproval, setDraftRequiresApproval] = useState(false);
   const editFileInputRef = useRef(null);
   const draftFileInputRef = useRef(null);
 
@@ -2941,6 +3015,7 @@ function CalendarView({ posts, onLoadMonth, platforms = [], connectedPlatforms =
         linkedin_target_ids: draftPlatforms.includes('linkedin') ? draftLinkedInTargets : [],
         generation_source: 'calendar',
         group_id: draftGroupId || undefined,
+        requires_approval: draftRequiresApproval || undefined,
         generation_batch_id: `calendar-${Date.now()}`,
         generation_index: 1,
         generation_total: 1,
@@ -2952,6 +3027,7 @@ function CalendarView({ posts, onLoadMonth, platforms = [], connectedPlatforms =
         setDraftContent('');
         setDraftMediaUrls('');
         setDraftGroupId('');
+        setDraftRequiresApproval(false);
       } else {
         onError?.('Post was created but not scheduled. Please retry.');
       }
@@ -3188,6 +3264,10 @@ function CalendarView({ posts, onLoadMonth, platforms = [], connectedPlatforms =
                   <option value="">No group</option>
                   {calendarGroups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
                 </select>
+                <label style={{ color: '#ddd', fontSize: 13, display: 'flex', gap: 8, alignItems: 'center', marginTop: 6 }}>
+                  <input type="checkbox" checked={draftRequiresApproval} onChange={(e) => setDraftRequiresApproval(e.target.checked)} />
+                  Needs my approval before publishing
+                </label>
               </div>
               <FacebookPagesPicker
                 visible={draftPlatforms.includes('facebook')}
@@ -4353,6 +4433,7 @@ function Sidebar({ user, accounts, view, setView, onSwitchAccount, onLogout, con
               { id: 'schedule', label: 'Schedule', icon: '📝' },
               { id: 'autopilot', label: 'Auto Pilot', icon: '🤖' },
               { id: 'calendar', label: 'Calendar', icon: '📅' },
+              { id: 'approval', label: 'Approval Inbox', icon: '✅' },
               { id: 'analytics', label: 'Analytics', icon: '📊' },
             { id: 'groups', label: 'Groups', icon: '👥' },
             { id: 'custom-platforms', label: 'Custom Platforms', icon: '🔌' },

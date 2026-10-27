@@ -166,6 +166,7 @@ CREATE TABLE IF NOT EXISTS posts (
   scheduled_at TIMESTAMPTZ,
   published_at TIMESTAMPTZ,
   group_id UUID REFERENCES account_groups(id) ON DELETE SET NULL,
+  requires_approval BOOLEAN NOT NULL DEFAULT false,
   attempts INTEGER NOT NULL DEFAULT 0,
   last_attempt_at TIMESTAMPTZ,
   next_attempt_at TIMESTAMPTZ,

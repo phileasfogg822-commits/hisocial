@@ -90,3 +90,12 @@ closed head `65b37ec`. PR base:
   time of this gate-doc write; Phase 12 is accepted
   ONLY on a green run on the exact head, including
   the new tests.
+
+## CI verdict (added after the run)
+
+- Run `40499470644` on head `748152e` (the code
+  head): **SUCCESS** — all steps green, including
+  Test backend and the frontend Docker build.
+  **Phase 12 ACCEPTED on `748152e`.** Draft PR #12
+  created and verified. The confirmatory run on
+  this gate head follows the Phase 1–11 pattern.

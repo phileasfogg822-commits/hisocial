@@ -82,3 +82,12 @@ Phase 21 closed head `b2b7a52`. PR base:
   time of this gate-doc write; Phase 22 is accepted
   ONLY on a green run on the exact head, including
   the new tests.
+
+## CI verdict (added after the run)
+
+- Run `40564311887` on head `a37ee4d` (the code
+  head): **SUCCESS** — all steps green, including
+  Test backend and the frontend Docker build.
+  **Phase 22 ACCEPTED on `a37ee4d`.** Draft PR #22
+  created and verified. The confirmatory run on
+  this gate head follows the Phase 1–21 pattern.

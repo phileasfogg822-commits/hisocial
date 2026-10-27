@@ -20,7 +20,8 @@ const isConfigured = (platform) => {
     reddit: process.env.REDDIT_CLIENT_ID,
     pinterest: process.env.PINTEREST_APP_ID,
     google: process.env.GOOGLE_CLIENT_ID,
-    youtube: process.env.GOOGLE_CLIENT_ID
+    youtube: process.env.GOOGLE_CLIENT_ID,
+    tiktok: process.env.TIKTOK_CLIENT_KEY
   };
   const val = keys[platform];
   return val && !val.startsWith('your_');
@@ -163,6 +164,82 @@ router.get('/youtube/callback', async (req, res) => {
   } catch (e) {
     console.error('YouTube callback error:', e.response?.data || e.message);
     return res.redirect(`${FRONTEND_URL}?error=youtube_auth_failed&msg=${encodeURIComponent(e.response?.data?.error?.message || e.message)}`);
+  }
+});
+
+// TikTok — Phase 9. Content Posting API, direct post
+// (video.publish scope; video.upload would only reach
+// the creator's inbox). Tokens expire after 24 hours,
+// so the refresh token is stored and both posting paths
+// refresh before posting. Until the app passes TikTok's
+// audit, posts are forced SELF_ONLY — see utils/tiktok.
+router.get('/tiktok', requireAppProfile, (req, res) => {
+  if (!isConfigured('tiktok')) {
+    return res.redirect(`${FRONTEND_URL}?error=tiktok_not_configured`);
+  }
+  const { TIKTOK_SCOPES, tiktokCallbackUrl } = require('../utils/tiktok');
+  const params = new URLSearchParams({
+    client_key: process.env.TIKTOK_CLIENT_KEY,
+    response_type: 'code',
+    scope: TIKTOK_SCOPES.join(','),
+    redirect_uri: tiktokCallbackUrl(),
+    state: encodeOauthState({ provider: 'tiktok', userId: req.user.id, mode: 'profile' }),
+  });
+  res.redirect(`https://www.tiktok.com/v2/auth/authorize/?${params}`);
+});
+
+router.get('/tiktok/callback', async (req, res) => {
+  const { code, error, error_description } = req.query;
+  if (error) {
+    return res.redirect(`${FRONTEND_URL}?error=tiktok_auth_failed&msg=${encodeURIComponent(error_description || String(error))}`);
+  }
+  if (!code) return res.redirect(`${FRONTEND_URL}?error=tiktok_auth_failed`);
+  try {
+    const axios = require('axios');
+    const db = req.app.locals.db;
+    const { exchangeCode, tiktokCallbackUrl } = require('../utils/tiktok');
+    const tokens = await exchangeCode({
+      code: String(code),
+      redirectUri: tiktokCallbackUrl(),
+      clientKey: process.env.TIKTOK_CLIENT_KEY,
+      clientSecret: process.env.TIKTOK_CLIENT_SECRET,
+    });
+    const accessToken = tokens.access_token;
+    if (!accessToken) throw new Error('TikTok exchange returned no access_token');
+    const expiresAt = tokens.expires_in ? new Date(Date.now() + tokens.expires_in * 1000) : null;
+
+    const userRes = await axios.get('https://open.tiktokapis.com/v2/user/info/', {
+      params: { fields: 'open_id,display_name,avatar_url' },
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    const creator = userRes.data?.data?.user || {};
+    if (!creator.open_id) throw new Error('TikTok user info did not return open_id');
+
+    const oauthUserId = getOauthLinkedUserId(req);
+    let user = null;
+    if (oauthUserId) {
+      const userResult = await db.query('SELECT * FROM users WHERE id = $1', [oauthUserId]);
+      user = userResult.rows[0] || null;
+    }
+    if (!user) user = req.user;
+    if (!user) return res.redirect(`${FRONTEND_URL}?error=not_logged_in`);
+
+    await db.query(
+      `INSERT INTO social_accounts
+       (user_id, platform, platform_user_id, platform_username, platform_display_name, platform_avatar_url, access_token, refresh_token, token_expires_at, scope)
+       VALUES ($1,'tiktok',$2,$3,$4,$5,$6,$7,$8,$9)
+       ON CONFLICT (user_id, platform, platform_user_id) DO UPDATE SET
+       access_token=$6, refresh_token=CASE WHEN $7 IS NULL THEN social_accounts.refresh_token ELSE $7 END,
+       token_expires_at=$8, scope=$9,
+       platform_username=$3, platform_display_name=$4, platform_avatar_url=$5, updated_at=NOW()`,
+      [user.id, creator.open_id, creator.display_name || creator.open_id, creator.display_name || creator.open_id,
+       creator.avatar_url || null, accessToken, tokens.refresh_token || null, expiresAt, tokens.scope || null]
+    );
+
+    return finishOAuth(req, res, user, 'tiktok');
+  } catch (e) {
+    console.error('TikTok callback error:', e.response?.data || e.message);
+    return res.redirect(`${FRONTEND_URL}?error=tiktok_auth_failed&msg=${encodeURIComponent(e.response?.data?.error?.message || e.message)}`);
   }
 });
 

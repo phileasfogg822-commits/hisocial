@@ -37,6 +37,7 @@ function buildRedirectUri(env, platform) {
     reddit: ['REDDIT_CALLBACK_URL'],
     pinterest: ['PINTEREST_CALLBACK_URL'],
     youtube: ['YOUTUBE_CALLBACK_URL'],
+    tiktok: ['TIKTOK_CALLBACK_URL'],
   }[platform];
   if (!callbackVars) return null;
   for (const name of callbackVars) {
@@ -52,6 +53,7 @@ function buildRedirectUri(env, platform) {
     reddit: '/auth/reddit/callback',
     pinterest: '/auth/pinterest/callback',
     youtube: '/auth/youtube/callback',
+    tiktok: '/auth/tiktok/callback',
   };
   return origin + paths[platform];
 }
@@ -140,6 +142,17 @@ const SPECS = [
     redirectFieldNote: 'Paste it under APIs & Services > Credentials > your OAuth client > Authorized redirect URIs.',
     requiredVars: ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'],
     callbackVar: 'YOUTUBE_CALLBACK_URL',
+  },
+  {
+    id: 'tiktok',
+    name: 'TikTok',
+    connectId: 'tiktok',
+    portalUrl: 'https://developers.tiktok.com',
+    portalName: 'TikTok for Developers',
+    productNote: 'Create an app, request Login Kit + Content Posting API with video.publish scope (direct post; video.upload only reaches drafts). Until the app passes TikTok\'s Content Posting audit, posts are forced private — public posting is an owner audit step, not something the wizard can grant.',
+    redirectFieldNote: 'Paste it under your app settings > Redirect URIs (must match exactly, including path).',
+    requiredVars: ['TIKTOK_CLIENT_KEY', 'TIKTOK_CLIENT_SECRET'],
+    callbackVar: 'TIKTOK_CALLBACK_URL',
   },
   {
     id: 'pinterest',

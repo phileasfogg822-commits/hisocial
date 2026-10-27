@@ -512,6 +512,12 @@ router.post('/', requireAuth, async (req, res) => {
       tokens['youtube'] = await refreshYouTubeTokenIfNeeded(db, req.user.id, tokens['youtube']);
     }
 
+    // Phase 9: TikTok tokens live only 24 hours, so this
+    // refresh is mandatory, not optional.
+    if (platforms.includes('tiktok') && tokens['tiktok']) {
+      tokens['tiktok'] = await refreshTikTokTokenIfNeeded(db, req.user.id, tokens['tiktok']);
+    }
+
     // Create post record
     const postResult = await db.query(
       `INSERT INTO posts 
@@ -669,6 +675,92 @@ async function postToYouTube(accessToken, content, mediaUrls) {
   return { status: 'success', id: uploaded.id, url: uploaded.url, target_name: 'YouTube' };
 }
 
+// Phase 9: refresh a TikTok access token when it is
+// expired or has no recorded expiry (tokens live only
+// 24 hours, so this is mandatory, not best-effort
+// polish). On refresh failure the old token is kept
+// and the upload fails visibly. A rotated refresh token
+// is stored when TikTok returns one.
+async function refreshTikTokTokenIfNeeded(db, userId, tokenRow) {
+  if (!tokenRow || !tokenRow.refresh_token) return tokenRow;
+  const expiresAt = tokenRow.token_expires_at ? new Date(tokenRow.token_expires_at).getTime() : NaN;
+  if (!Number.isNaN(expiresAt) && expiresAt > Date.now() + 5 * 60 * 1000) return tokenRow;
+  try {
+    const { refreshAccessToken } = require('./utils/tiktok');
+    const refreshed = await refreshAccessToken({
+      refreshToken: tokenRow.refresh_token,
+      clientKey: process.env.TIKTOK_CLIENT_KEY,
+      clientSecret: process.env.TIKTOK_CLIENT_SECRET,
+    });
+    await db.query(
+      `UPDATE social_accounts SET access_token=$1, refresh_token=CASE WHEN $2 IS NULL THEN refresh_token ELSE $2 END,
+       token_expires_at=$3, updated_at=NOW()
+       WHERE user_id=$4 AND platform='tiktok' AND platform_user_id=$5`,
+      [refreshed.accessToken, refreshed.refreshToken, refreshed.expiresAt, userId, tokenRow.platform_user_id]
+    );
+    return {
+      ...tokenRow,
+      access_token: refreshed.accessToken,
+      refresh_token: refreshed.refreshToken || tokenRow.refresh_token,
+      token_expires_at: refreshed.expiresAt,
+    };
+  } catch (e) {
+    console.warn('TikTok token refresh failed:', e.response?.data || e.message);
+    return tokenRow;
+  }
+}
+
+// Phase 9: TikTok direct post. Bytes are fetched
+// server-side from the post's first video URL, init'd,
+// uploaded in chunks, then polled until TikTok reports
+// PUBLISH_COMPLETE. If polling times out while TikTok
+// is still processing, the attempt is recorded as
+// 'processing' with the publish_id — NOT as success —
+// so a later retry does not silently duplicate, and the
+// record says exactly what happened.
+async function postToTikTok(accessToken, content, mediaUrls) {
+  const { pickVideoUrl } = require('./utils/youtube');
+  const { buildPostInfo, initVideoPost, fetchPublishStatus, chunkPlan } = require('./utils/tiktok');
+  const videoUrl = pickVideoUrl(mediaUrls);
+  if (!videoUrl) {
+    throw new Error('TikTok needs a video — attach a video file URL to the post.');
+  }
+  const axios = require('axios');
+  const res = await axios.get(videoUrl, { responseType: 'arraybuffer' });
+  const buffer = Buffer.from(res.data);
+  const { publishId, uploadUrl } = await initVideoPost({
+    accessToken,
+    postInfo: buildPostInfo(content),
+    videoSize: buffer.length,
+  });
+  const chunks = chunkPlan(buffer.length);
+  for (const chunk of chunks) {
+    await axios.put(uploadUrl, buffer.subarray(chunk.start, chunk.end + 1), {
+      headers: {
+        'Content-Type': 'video/mp4',
+        'Content-Range': chunk.range,
+      },
+    });
+  }
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    await sleep(attempt === 0 ? 5000 : 10000);
+    const status = await fetchPublishStatus({ accessToken, publishId });
+    const state = String(status.status || '').toUpperCase();
+    if (state === 'PUBLISH_COMPLETE') {
+      return { status: 'success', id: publishId, url: null, target_name: 'TikTok' };
+    }
+    if (state === 'FAILED') {
+      throw new Error(`TikTok publish failed: ${status.fail_reason || 'unknown reason'}`);
+    }
+  }
+  return {
+    status: 'processing',
+    id: publishId,
+    error_message: `TikTok accepted the upload and is still processing it (publish_id ${publishId}). Check TikTok before retrying to avoid a duplicate.`,
+  };
+}
+
 async function postToPlatform(platform, tokenData, content, mediaUrls, options = {}) {
   if (!tokenData) throw new Error(`Not connected to ${platform}`);
   
@@ -690,6 +782,8 @@ async function postToPlatform(platform, tokenData, content, mediaUrls, options =
         return await postToPinterest(access_token, content, mediaUrls);
       case 'youtube':
         return await postToYouTube(access_token, content, mediaUrls);
+      case 'tiktok':
+        return await postToTikTok(access_token, content, mediaUrls);
       default:
         throw new Error(`Unknown platform: ${platform}`);
     }
@@ -1546,6 +1640,11 @@ async function publishStoredPost(pool, post) {
   // Phase 8: refresh an expired YouTube token before posting.
   if (post.platforms.includes('youtube') && tokens['youtube']) {
     tokens['youtube'] = await refreshYouTubeTokenIfNeeded(pool, post.user_id, tokens['youtube']);
+  }
+
+  // Phase 9: TikTok tokens live only 24 hours.
+  if (post.platforms.includes('tiktok') && tokens['tiktok']) {
+    tokens['tiktok'] = await refreshTikTokTokenIfNeeded(pool, post.user_id, tokens['tiktok']);
   }
 
   const results = await Promise.allSettled(

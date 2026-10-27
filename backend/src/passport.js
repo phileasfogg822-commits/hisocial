@@ -2,7 +2,9 @@ const FacebookStrategy = require('passport-facebook').Strategy;
 const LinkedInStrategy = require('passport-linkedin-oauth2').Strategy;
 const TwitterStrategy = require('passport-twitter').Strategy;
 const RedditStrategy = require('passport-reddit').Strategy;
+const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const { getOauthLinkedUserId } = require('./utils/oauthState');
+const { isGoogleConfigured, googleCallbackUrl, GOOGLE_SCOPES } = require('./utils/googleLogin');
 
 module.exports = (passport, pool) => {
   passport.serializeUser((user, done) => {
@@ -144,6 +146,35 @@ module.exports = (passport, pool) => {
           return done(null, req.user);
         }
         const user = await findOrCreateUser(profile, 'twitter', token, tokenSecret, null);
+        done(null, user);
+      } catch (err) { done(err); }
+    }));
+  }
+
+  // Google — APP login (Phase 3), not a posting connection.
+  // Registered only when real credentials are configured, so a
+  // dev checkout without Google credentials still boots and the
+  // local admin login remains the fallback. Scopes are identity
+  // only ('profile', 'email'); no YouTube scope is requested here.
+  if (isGoogleConfigured(process.env)) {
+    passport.use('google', new GoogleStrategy({
+      clientID: process.env.GOOGLE_CLIENT_ID,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+      callbackURL: googleCallbackUrl(process.env),
+      scope: GOOGLE_SCOPES,
+      passReqToCallback: true
+    }, async (req, accessToken, refreshToken, params, profile, done) => {
+      try {
+        const tokenExpiry = params?.expires_in
+          ? new Date(Date.now() + params.expires_in * 1000)
+          : null;
+        const linkedUserId = getOauthLinkedUserId(req);
+        if (linkedUserId) {
+          await linkAccount(pool, linkedUserId, 'google', profile, accessToken, refreshToken);
+          const userResult = await pool.query('SELECT * FROM users WHERE id = $1', [linkedUserId]);
+          return done(null, userResult.rows[0] || null);
+        }
+        const user = await findOrCreateUser(profile, 'google', accessToken, refreshToken, tokenExpiry);
         done(null, user);
       } catch (err) { done(err); }
     }));

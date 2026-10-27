@@ -4993,7 +4993,16 @@ function LoginGate({ onLogin, loading = false }) {
       <div style={{ ...styles.settingsCard, width: '100%', maxWidth: 420 }}>
         <h2 style={{ ...styles.sectionTitle, marginTop: 0 }}>Sign in to SocialHub</h2>
         <p style={{ color: '#94a3b8', fontSize: 13, lineHeight: 1.5 }}>
-          Enter the VPS app username and password, then choose any internal profile inside the app.
+          Sign in with Google, or use the local app username and password below, then choose any internal profile inside the app.
+        </p>
+        <a
+          href={`${API}/auth/google`}
+          style={{ ...styles.primaryBtn, display: 'block', textAlign: 'center', textDecoration: 'none', marginTop: 12 }}
+        >
+          Continue with Google
+        </a>
+        <p style={{ color: '#94a3b8', fontSize: 12, lineHeight: 1.5, marginTop: 8 }}>
+          Google sign-in needs Google Cloud credentials configured on the backend; if they are not set, you will be sent back here and can still use the local login below.
         </p>
         <form onSubmit={handleSubmit} style={{ display: 'grid', gap: 10, marginTop: 12 }}>
           <input

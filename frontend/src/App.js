@@ -626,6 +626,8 @@ export default function App() {
           />
         ) : view === 'analytics' ? (
           <AnalyticsView data={analyticsData} onRefresh={() => loadAnalytics(7)} onError={(msg) => notify(msg, 'error')} />
+        ) : view === 'groups' ? (
+          <GroupsView onNotify={(msg) => notify(msg)} onError={(msg) => notify(msg, 'error')} />
         ) : (
           <SettingsView
             platforms={platforms}
@@ -3877,6 +3879,7 @@ function Sidebar({ user, accounts, view, setView, onSwitchAccount, onLogout, con
               { id: 'autopilot', label: 'Auto Pilot', icon: '🤖' },
               { id: 'calendar', label: 'Calendar', icon: '📅' },
               { id: 'analytics', label: 'Analytics', icon: '📊' },
+            { id: 'groups', label: 'Groups', icon: '👥' },
               { id: 'overlay', label: 'Overlay', icon: '🖼️' },
               { id: 'library', label: 'Library', icon: '📚' },
               { id: 'settings', label: 'Settings', icon: '⚙️' },
@@ -5025,6 +5028,147 @@ function LoginGate({ onLogin, loading = false }) {
           </button>
         </form>
       </div>
+    </div>
+  );
+}
+
+// Phase 4: account groups. A group holds several connected
+// social accounts; an account belongs to at most one group.
+// Deleting a group never deletes its accounts — they become
+// ungrouped. Posting still uses one account per platform;
+// choosing which account in a group to post to is later work.
+function GroupsView({ onNotify, onError }) {
+  const [groups, setGroups] = useState([]);
+  const [ungrouped, setUngrouped] = useState([]);
+  const [newName, setNewName] = useState('');
+  const [newDescription, setNewDescription] = useState('');
+  const [assignSelection, setAssignSelection] = useState({});
+
+  const loadGroups = useCallback(async () => {
+    try {
+      const [groupsRes, ungroupedRes] = await Promise.all([
+        axios.get(`${API}/api/groups`),
+        axios.get(`${API}/api/groups/ungrouped`),
+      ]);
+      setGroups(groupsRes.data || []);
+      setUngrouped(ungroupedRes.data || []);
+    } catch (e) {
+      onError?.(e.response?.data?.error || 'Failed to load groups');
+    }
+  }, [onError]);
+
+  useEffect(() => { loadGroups(); }, [loadGroups]);
+
+  const createGroup = async (e) => {
+    e.preventDefault();
+    if (!newName.trim()) return;
+    try {
+      await axios.post(`${API}/api/groups`, { name: newName, description: newDescription });
+      setNewName('');
+      setNewDescription('');
+      await loadGroups();
+      onNotify?.('Group created');
+    } catch (e) {
+      onError?.(e.response?.data?.error || 'Failed to create group');
+    }
+  };
+
+  const deleteGroup = async (groupId) => {
+    try {
+      await axios.delete(`${API}/api/groups/${groupId}`);
+      await loadGroups();
+      onNotify?.('Group deleted — its accounts are now ungrouped');
+    } catch (e) {
+      onError?.(e.response?.data?.error || 'Failed to delete group');
+    }
+  };
+
+  const assignAccount = async (groupId) => {
+    const socialAccountId = assignSelection[groupId];
+    if (!socialAccountId) return;
+    try {
+      await axios.post(`${API}/api/groups/${groupId}/accounts`, { socialAccountId });
+      await loadGroups();
+      onNotify?.('Account added to group');
+    } catch (e) {
+      onError?.(e.response?.data?.error || 'Failed to add account to group');
+    }
+  };
+
+  const unassignAccount = async (groupId, accountId) => {
+    try {
+      await axios.delete(`${API}/api/groups/${groupId}/accounts/${accountId}`);
+      await loadGroups();
+    } catch (e) {
+      onError?.(e.response?.data?.error || 'Failed to remove account from group');
+    }
+  };
+
+  return (
+    <div style={{ display: 'grid', gap: 16 }}>
+      <div style={styles.settingsCard}>
+        <h2 style={{ ...styles.sectionTitle, marginTop: 0 }}>Account Groups</h2>
+        <p style={{ color: '#94a3b8', fontSize: 13, lineHeight: 1.5 }}>
+          Group your connected accounts by purpose — for example English video, Urdu video, or images.
+          A user can now hold several accounts on the same platform, and each account sits in at most one group.
+        </p>
+        <form onSubmit={createGroup} style={{ display: 'grid', gap: 10, marginTop: 12 }}>
+          <input style={styles.input} value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Group name, e.g. English video" />
+          <input style={styles.input} value={newDescription} onChange={(e) => setNewDescription(e.target.value)} placeholder="Description (optional)" />
+          <button type="submit" style={styles.primaryBtn} disabled={!newName.trim()}>Create Group</button>
+        </form>
+      </div>
+      {groups.map((group) => (
+        <div key={group.id} style={styles.settingsCard}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <h3 style={{ ...styles.sectionTitle, margin: 0 }}>{group.name}</h3>
+            <button style={styles.secondaryBtn} onClick={() => deleteGroup(group.id)}>Delete group</button>
+          </div>
+          {group.description && <p style={{ color: '#94a3b8', fontSize: 13 }}>{group.description}</p>}
+          {(group.accounts || []).length === 0 ? (
+            <p style={{ color: '#94a3b8', fontSize: 13 }}>No accounts in this group yet.</p>
+          ) : (
+            <ul style={{ paddingLeft: 18 }}>
+              {(group.accounts || []).map((account) => (
+                <li key={account.id} style={{ color: '#cbd5e1', fontSize: 13, marginBottom: 6 }}>
+                  {account.platform}: {account.platform_display_name || account.platform_username || account.platform_user_id}
+                  {' '}
+                  <button style={styles.secondaryBtn} onClick={() => unassignAccount(group.id, account.id)}>Remove</button>
+                </li>
+              ))}
+            </ul>
+          )}
+          {ungrouped.length > 0 && (
+            <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+              <select
+                style={styles.input}
+                value={assignSelection[group.id] || ''}
+                onChange={(e) => setAssignSelection({ ...assignSelection, [group.id]: e.target.value })}
+              >
+                <option value="">Add an ungrouped account…</option>
+                {ungrouped.map((account) => (
+                  <option key={account.id} value={account.id}>
+                    {account.platform}: {account.platform_display_name || account.platform_username || account.platform_user_id}
+                  </option>
+                ))}
+              </select>
+              <button style={styles.primaryBtn} onClick={() => assignAccount(group.id)} disabled={!assignSelection[group.id]}>Add</button>
+            </div>
+          )}
+        </div>
+      ))}
+      {ungrouped.length > 0 && (
+        <div style={styles.settingsCard}>
+          <h3 style={{ ...styles.sectionTitle, marginTop: 0 }}>Ungrouped accounts</h3>
+          <ul style={{ paddingLeft: 18 }}>
+            {ungrouped.map((account) => (
+              <li key={account.id} style={{ color: '#cbd5e1', fontSize: 13 }}>
+                {account.platform}: {account.platform_display_name || account.platform_username || account.platform_user_id}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }

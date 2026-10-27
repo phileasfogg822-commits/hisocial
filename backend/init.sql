@@ -35,9 +35,23 @@ CREATE TABLE IF NOT EXISTS users (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Phase 4: account groups. A group belongs to one app user;
+-- a social account belongs to at most one group (group_id).
+CREATE TABLE IF NOT EXISTS account_groups (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  description TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE (user_id, name)
+);
+CREATE INDEX IF NOT EXISTS idx_account_groups_user ON account_groups (user_id);
+
 CREATE TABLE IF NOT EXISTS social_accounts (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  group_id UUID REFERENCES account_groups(id) ON DELETE SET NULL,
   platform TEXT NOT NULL,
   platform_user_id TEXT,
   platform_username TEXT,
@@ -52,10 +66,14 @@ CREATE TABLE IF NOT EXISTS social_accounts (
   is_active BOOLEAN DEFAULT true,
   connected_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),
-  -- Required: every upsert uses ON CONFLICT (user_id, platform).
-  -- Side effect, already known: one account per platform per user.
-  UNIQUE (user_id, platform)
+  -- Phase 4: uniqueness is per platform ACCOUNT, not per platform.
+  -- Every upsert now uses ON CONFLICT (user_id, platform,
+  -- platform_user_id), so a user can hold several accounts on
+  -- the same platform (different platform_user_id) while a
+  -- re-connect of the same account still updates in place.
+  UNIQUE (user_id, platform, platform_user_id)
 );
+CREATE INDEX IF NOT EXISTS idx_social_accounts_group ON social_accounts (group_id);
 
 CREATE TABLE IF NOT EXISTS posts (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

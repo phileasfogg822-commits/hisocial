@@ -1,7 +1,7 @@
 // Phase 2: schema-parity regression tests for the Phase 1 bug.
 // These are static file checks, not a live database test: they prove
 // that backend/init.sql and runMigrations() in backend/src/index.js
-// agree on the 8 base tables and on the extension that provides
+// agree on the base tables and on the extension that provides
 // uuid_generate_v4(). The Phase 1 failure was exactly a drift here:
 // pgcrypto was created, uuid-ossp was not, and every table creation
 // failed with 'function uuid_generate_v4() does not exist'.
@@ -16,6 +16,7 @@ const indexJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'index.js'), '
 const BASE_TABLES = [
   'users',
   'social_accounts',
+  'account_groups',
   'posts',
   'platform_posts',
   'sessions',
@@ -31,14 +32,14 @@ function createdTables(sql) {
 }
 
 describe('schema parity (Phase 1 regression)', () => {
-  it('init.sql creates all 8 base tables', () => {
+  it('init.sql creates all base tables', () => {
     const tables = createdTables(initSql);
     for (const table of BASE_TABLES) {
       assert.ok(tables.has(table), `init.sql missing table ${table}`);
     }
   });
 
-  it('runMigrations() creates all 8 base tables', () => {
+  it('runMigrations() creates all base tables', () => {
     const tables = createdTables(indexJs);
     for (const table of BASE_TABLES) {
       assert.ok(tables.has(table), `runMigrations() missing table ${table}`);

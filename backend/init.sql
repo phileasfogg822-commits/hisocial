@@ -86,6 +86,8 @@ CREATE TABLE IF NOT EXISTS posts (
   published_at TIMESTAMPTZ,
   facebook_page_ids TEXT[] DEFAULT '{}',
   linkedin_target_ids TEXT[] DEFAULT '{}',
+  reddit_subreddit TEXT,
+  pinterest_board_id TEXT,
   autopilot_generated BOOLEAN DEFAULT false,
   generation_source VARCHAR(30),
   generation_batch_id VARCHAR(100),

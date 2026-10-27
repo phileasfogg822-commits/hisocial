@@ -869,6 +869,13 @@ function ComposeView({
   const [selectedPlatforms, setSelectedPlatforms] = useState([]);
   const [selectedFacebookPages, setSelectedFacebookPages] = useState([]);
   const [selectedLinkedInTargets, setSelectedLinkedInTargets] = useState([]);
+  // Phase 10: Reddit needs a subreddit per post (no more
+  // silent r/test), Pinterest needs a board choice.
+  const [redditSubreddit, setRedditSubreddit] = useState('');
+  const [pinterestBoards, setPinterestBoards] = useState([]);
+  const [pinterestBoardsLoading, setPinterestBoardsLoading] = useState(false);
+  const [pinterestBoardsAttempted, setPinterestBoardsAttempted] = useState(false);
+  const [selectedPinterestBoard, setSelectedPinterestBoard] = useState('');
   const [aiProvider, setAiProvider] = useState('');
   const [composeImageProvider, setComposeImageProvider] = useState('');
 
@@ -1094,6 +1101,25 @@ function ComposeView({
 
     setSelectedFacebookPages((prev) => prev.filter((pageId) => facebookPages.some((page) => page.id === pageId)));
   }, [facebookPages, facebookPagesLoading, onLoadFacebookPages, selectedPlatforms]);
+
+  useEffect(() => {
+    if (!selectedPlatforms.includes('pinterest')) {
+      setSelectedPinterestBoard('');
+      return;
+    }
+    if (!pinterestBoardsAttempted && !pinterestBoardsLoading) {
+      setPinterestBoardsAttempted(true);
+      setPinterestBoardsLoading(true);
+      axios.get(`${API}/api/pinterest/boards`)
+        .then((res) => {
+          const boards = res.data?.boards || [];
+          setPinterestBoards(boards);
+          if (boards.length === 1) setSelectedPinterestBoard(boards[0].id);
+        })
+        .catch(() => {})
+        .finally(() => setPinterestBoardsLoading(false));
+    }
+  }, [selectedPlatforms, pinterestBoardsAttempted, pinterestBoardsLoading]);
 
   useEffect(() => {
     if (!selectedPlatforms.includes('linkedin')) {
@@ -1358,6 +1384,7 @@ function ComposeView({
     if (!item.scheduledDate || !item.scheduledTime) return onError('Date and time are required');
     if (selectedPlatforms.includes('facebook') && selectedFacebookPages.length === 0) return onError('Select at least one Facebook Page');
     if (selectedPlatforms.includes('linkedin') && selectedLinkedInTargets.length === 0) return onError('Select at least one LinkedIn target');
+    if (selectedPlatforms.includes('reddit') && !/^[A-Za-z0-9_]{3,21}$/.test(redditSubreddit.trim().replace(/^r\//i, ''))) return onError('Enter a valid subreddit for Reddit');
 
     const scheduledAt = `${item.scheduledDate}T${item.scheduledTime}:00`;
     setSchedulingId(item.id);
@@ -1395,6 +1422,8 @@ function ComposeView({
           media_urls: mediaUrls,
           facebook_page_ids: selectedPlatforms.includes('facebook') ? selectedFacebookPages : [],
           linkedin_target_ids: selectedPlatforms.includes('linkedin') ? selectedLinkedInTargets : [],
+          reddit_subreddit: selectedPlatforms.includes('reddit') ? redditSubreddit.trim() : undefined,
+          pinterest_board_id: selectedPlatforms.includes('pinterest') ? (selectedPinterestBoard || undefined) : undefined,
           provider: item.aiProvider || 'gemini',
           generation_source: 'ai_creative_engine_workflow',
           generation_batch_id: item.generation_batch_id || `ai_workflow-${new Date(item.scheduledDate || Date.now()).getTime()}`,
@@ -1410,6 +1439,8 @@ function ComposeView({
           scheduled_at: scheduledAt,
           facebook_page_ids: selectedPlatforms.includes('facebook') ? selectedFacebookPages : [],
           linkedin_target_ids: selectedPlatforms.includes('linkedin') ? selectedLinkedInTargets : [],
+          reddit_subreddit: selectedPlatforms.includes('reddit') ? redditSubreddit.trim() : undefined,
+          pinterest_board_id: selectedPlatforms.includes('pinterest') ? (selectedPinterestBoard || undefined) : undefined,
           generation_source: item.generation_source || 'workflow',
           generation_batch_id: item.generation_batch_id || `workflow-${new Date(item.scheduledDate || Date.now()).getTime()}`,
           generation_index: item.generation_index || item.day || 1,
@@ -1530,6 +1561,8 @@ function ComposeView({
           media_urls: mediaUrls,
           facebook_page_ids: selectedPlatforms.includes('facebook') ? selectedFacebookPages : [],
           linkedin_target_ids: selectedPlatforms.includes('linkedin') ? selectedLinkedInTargets : [],
+          reddit_subreddit: selectedPlatforms.includes('reddit') ? redditSubreddit.trim() : undefined,
+          pinterest_board_id: selectedPlatforms.includes('pinterest') ? (selectedPinterestBoard || undefined) : undefined,
           provider: aiProvider || 'gemini',
           generation_source: 'ai_creative_engine_compose',
           generation_batch_id: `ai_compose-${Date.now()}`,
@@ -1545,6 +1578,8 @@ function ComposeView({
           scheduled_at: scheduledAt,
           facebook_page_ids: selectedPlatforms.includes('facebook') ? selectedFacebookPages : [],
           linkedin_target_ids: selectedPlatforms.includes('linkedin') ? selectedLinkedInTargets : [],
+          reddit_subreddit: selectedPlatforms.includes('reddit') ? redditSubreddit.trim() : undefined,
+          pinterest_board_id: selectedPlatforms.includes('pinterest') ? (selectedPinterestBoard || undefined) : undefined,
           generation_source: 'compose',
           generation_batch_id: `compose-${Date.now()}`,
           generation_index: 1,
@@ -1599,6 +1634,8 @@ function ComposeView({
           media_urls: mediaUrls,
           facebook_page_ids: selectedPlatforms.includes('facebook') ? selectedFacebookPages : [],
           linkedin_target_ids: selectedPlatforms.includes('linkedin') ? selectedLinkedInTargets : [],
+          reddit_subreddit: selectedPlatforms.includes('reddit') ? redditSubreddit.trim() : undefined,
+          pinterest_board_id: selectedPlatforms.includes('pinterest') ? (selectedPinterestBoard || undefined) : undefined,
           provider: aiProvider || 'gemini',
           generation_source: 'ai_creative_engine_compose',
           generation_batch_id: `ai_compose-${Date.now()}`,
@@ -1613,6 +1650,8 @@ function ComposeView({
           media_urls: mediaUrls,
           facebook_page_ids: selectedPlatforms.includes('facebook') ? selectedFacebookPages : [],
           linkedin_target_ids: selectedPlatforms.includes('linkedin') ? selectedLinkedInTargets : [],
+          reddit_subreddit: selectedPlatforms.includes('reddit') ? redditSubreddit.trim() : undefined,
+          pinterest_board_id: selectedPlatforms.includes('pinterest') ? (selectedPinterestBoard || undefined) : undefined,
           generation_source: 'compose',
           generation_batch_id: `compose-${Date.now()}`,
           generation_index: 1,
@@ -1632,6 +1671,7 @@ function ComposeView({
     if (selectedPlatforms.length === 0) return onError('Select at least one platform');
     if (selectedPlatforms.includes('facebook') && selectedFacebookPages.length === 0) return onError('Select at least one Facebook Page');
     if (selectedPlatforms.includes('linkedin') && selectedLinkedInTargets.length === 0) return onError('Select at least one LinkedIn target');
+    if (selectedPlatforms.includes('reddit') && !/^[A-Za-z0-9_]{3,21}$/.test(redditSubreddit.trim().replace(/^r\//i, ''))) return onError('Enter a valid subreddit for Reddit');
 
     // Show template selector only when no default template is chosen.
     if (!defaultTemplateId && savedTemplates.length > 0) {
@@ -1647,6 +1687,7 @@ function ComposeView({
     if (selectedPlatforms.length === 0) return onError('Select at least one platform');
     if (selectedPlatforms.includes('facebook') && selectedFacebookPages.length === 0) return onError('Select at least one Facebook Page');
     if (selectedPlatforms.includes('linkedin') && selectedLinkedInTargets.length === 0) return onError('Select at least one LinkedIn target');
+    if (selectedPlatforms.includes('reddit') && !/^[A-Za-z0-9_]{3,21}$/.test(redditSubreddit.trim().replace(/^r\//i, ''))) return onError('Enter a valid subreddit for Reddit');
 
     // Show template selector only when no default template is chosen.
     if (!defaultTemplateId && savedTemplates.length > 0) {
@@ -1717,6 +1758,43 @@ function ComposeView({
                 <label key={target.id} style={styles.pageOption}>
                   <input type="checkbox" checked={selectedLinkedInTargets.includes(target.id)} onChange={() => setSelectedLinkedInTargets((prev) => prev.includes(target.id) ? prev.filter((id) => id !== target.id) : [...prev, target.id])} />
                   <span style={{ color: '#ddd', fontSize: 12 }}>{target.name}</span>
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {selectedPlatforms.includes('reddit') && (
+        <div style={styles.targetCard}>
+          <span style={styles.targetLabel}>Reddit Subreddit</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8 }}>
+            <span style={{ color: '#888', fontSize: 13 }}>r/</span>
+            <input
+              style={styles.input}
+              value={redditSubreddit}
+              onChange={(e) => setRedditSubreddit(e.target.value)}
+              placeholder="technology"
+            />
+          </div>
+          <span style={styles.targetHint}>Required — the post goes to this subreddit, never to a default.</span>
+        </div>
+      )}
+
+      {selectedPlatforms.includes('pinterest') && (
+        <div style={styles.targetCard}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+            <span style={styles.targetLabel}>Pinterest Board</span>
+            <button style={styles.secondaryBtn} onClick={() => { setPinterestBoardsAttempted(false); setPinterestBoards([]); }}>Refresh</button>
+          </div>
+          {pinterestBoardsLoading ? <span style={styles.targetHint}>Loading...</span> : pinterestBoards.length === 0 ? (
+            <span style={styles.targetHint}>No boards loaded — the pin will use your first board.</span>
+          ) : (
+            <div style={styles.pageList}>
+              {pinterestBoards.map((board) => (
+                <label key={board.id} style={styles.pageOption}>
+                  <input type="radio" name="pinterest-board" checked={selectedPinterestBoard === board.id} onChange={() => setSelectedPinterestBoard(board.id)} />
+                  <span style={{ color: '#ddd', fontSize: 12 }}>{board.name}</span>
                 </label>
               ))}
             </div>

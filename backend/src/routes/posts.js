@@ -97,7 +97,7 @@ router.get('/linkedin/targets', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'LinkedIn is not connected for this account' });
     }
 
-    const { orgTargetsFromPageAccounts } = require('./utils/linkedin');
+    const { orgTargetsFromPageAccounts } = require('../utils/linkedin');
     const targets = await listLinkedInTargets(
       liRow?.access_token || null,
       pageRow?.access_token || null,
@@ -158,6 +158,8 @@ router.put('/:postId', requireAuth, async (req, res) => {
     scheduled_at, 
     facebook_page_ids, 
     linkedin_target_ids,
+    reddit_subreddit,
+    pinterest_board_id,
     // AI Creative Engine parameters
     tone, 
     niche, 
@@ -205,10 +207,24 @@ router.put('/:postId', requireAuth, async (req, res) => {
         return res.status(400).json({ error: 'Scheduled time must be in the future' });
       }
 
+      // Phase 10: keep the new targeting fields on edit.
+      const { validateSubreddit } = require('../utils/xrp');
+      let nextRedditSubreddit = existing.reddit_subreddit || null;
+      if (nextPlatforms.includes('reddit')) {
+        if (typeof reddit_subreddit === 'string') {
+          const checked = validateSubreddit(reddit_subreddit);
+          if (!checked.ok) return res.status(400).json({ error: checked.error });
+          nextRedditSubreddit = checked.subreddit;
+        }
+        if (!nextRedditSubreddit) return res.status(400).json({ error: 'Enter a subreddit for Reddit' });
+      }
+      const nextPinterestBoardId = typeof pinterest_board_id === 'string' && pinterest_board_id
+        ? pinterest_board_id : (existing.pinterest_board_id || null);
+
       const updatedRes = await db.query(
         `UPDATE posts
-         SET content=$1, media_urls=$2, platforms=$3, scheduled_at=$4, facebook_page_ids=$5, linkedin_target_ids=$6, updated_at=NOW()
-         WHERE id=$7 AND user_id=$8
+         SET content=$1, media_urls=$2, platforms=$3, scheduled_at=$4, facebook_page_ids=$5, linkedin_target_ids=$6, reddit_subreddit=$7, pinterest_board_id=$8, updated_at=NOW()
+         WHERE id=$9 AND user_id=$10
          RETURNING *`,
         [
           nextContent,
@@ -217,6 +233,8 @@ router.put('/:postId', requireAuth, async (req, res) => {
           nextScheduledAt,
           nextFacebookPageIds,
           nextLinkedInTargetIds,
+          nextRedditSubreddit,
+          nextPinterestBoardId,
           postId,
           req.user.id
         ]
@@ -239,10 +257,24 @@ router.put('/:postId', requireAuth, async (req, res) => {
         return res.status(400).json({ error: 'Scheduled time must be in the future' });
       }
 
+      // Phase 10: keep the new targeting fields on edit.
+      const { validateSubreddit } = require('../utils/xrp');
+      let nextRedditSubreddit = existing.reddit_subreddit || null;
+      if (nextPlatforms.includes('reddit')) {
+        if (typeof reddit_subreddit === 'string') {
+          const checked = validateSubreddit(reddit_subreddit);
+          if (!checked.ok) return res.status(400).json({ error: checked.error });
+          nextRedditSubreddit = checked.subreddit;
+        }
+        if (!nextRedditSubreddit) return res.status(400).json({ error: 'Enter a subreddit for Reddit' });
+      }
+      const nextPinterestBoardId = typeof pinterest_board_id === 'string' && pinterest_board_id
+        ? pinterest_board_id : (existing.pinterest_board_id || null);
+
       const updatedRes = await db.query(
         `UPDATE posts
-         SET content=$1, media_urls=$2, platforms=$3, scheduled_at=$4, facebook_page_ids=$5, linkedin_target_ids=$6, updated_at=NOW()
-         WHERE id=$7 AND user_id=$8
+         SET content=$1, media_urls=$2, platforms=$3, scheduled_at=$4, facebook_page_ids=$5, linkedin_target_ids=$6, reddit_subreddit=$7, pinterest_board_id=$8, updated_at=NOW()
+         WHERE id=$9 AND user_id=$10
          RETURNING *`,
         [
           nextContent,
@@ -251,6 +283,8 @@ router.put('/:postId', requireAuth, async (req, res) => {
           nextScheduledAt,
           nextFacebookPageIds,
           nextLinkedInTargetIds,
+          nextRedditSubreddit,
+          nextPinterestBoardId,
           postId,
           req.user.id
         ]
@@ -330,6 +364,8 @@ router.post('/', requireAuth, async (req, res) => {
     facebook_page_id,
     facebook_page_ids,
     linkedin_target_ids,
+    reddit_subreddit,
+    pinterest_board_id,
     scheduled_at,
     generation_source = 'manual',
     generation_batch_id,
@@ -370,6 +406,18 @@ router.post('/', requireAuth, async (req, res) => {
   const normalizedLinkedInTargetIds = Array.isArray(linkedin_target_ids)
     ? linkedin_target_ids.map((targetId) => String(targetId)).filter(Boolean)
     : [];
+
+  // Phase 10: Reddit needs a real subreddit per post;
+  // validate here so a bad value is a 400, not a post
+  // that later fails (or, as before, lands in r/test).
+  const { validateSubreddit } = require('../utils/xrp');
+  let normalizedRedditSubreddit = null;
+  if (platforms.includes('reddit')) {
+    const checked = validateSubreddit(reddit_subreddit);
+    if (!checked.ok) return res.status(400).json({ error: checked.error });
+    normalizedRedditSubreddit = checked.subreddit;
+  }
+  const normalizedPinterestBoardId = pinterest_board_id ? String(pinterest_board_id) : null;
 
   // Check if this is an AI-powered post generation request
   const shouldUseAICreativeEngine = (tone || niche || category || topic) && !content;
@@ -455,9 +503,10 @@ router.post('/', requireAuth, async (req, res) => {
       const postResult = await db.query(
         `INSERT INTO posts 
          (user_id, content, platforms, media_urls, status, scheduled_at, 
-          facebook_page_ids, linkedin_target_ids, generation_source, 
+          facebook_page_ids, linkedin_target_ids, reddit_subreddit,
+          pinterest_board_id, generation_source, 
           generation_batch_id, generation_index, generation_total)
-         VALUES ($1,$2,$3,$4,'scheduled',$5,$6,$7,$8,$9,$10,$11) 
+         VALUES ($1,$2,$3,$4,'scheduled',$5,$6,$7,$8,$9,$10,$11,$12,$13) 
          RETURNING *`,
         [
           req.user.id,
@@ -467,6 +516,8 @@ router.post('/', requireAuth, async (req, res) => {
           scheduledDate,
           normalizedFacebookPageIds,
           normalizedLinkedInTargetIds,
+          normalizedRedditSubreddit,
+          normalizedPinterestBoardId,
           generationSource,
           generationBatchId,
           generationIndex,
@@ -518,13 +569,20 @@ router.post('/', requireAuth, async (req, res) => {
       tokens['tiktok'] = await refreshTikTokTokenIfNeeded(db, req.user.id, tokens['tiktok']);
     }
 
+    // Phase 10: Reddit tokens live 1 hour and were never
+    // refreshed, so Reddit broke an hour after connect.
+    if (platforms.includes('reddit') && tokens['reddit']) {
+      tokens['reddit'] = await refreshRedditTokenIfNeeded(db, req.user.id, tokens['reddit']);
+    }
+
     // Create post record
     const postResult = await db.query(
       `INSERT INTO posts 
          (user_id, content, platforms, media_urls, status, facebook_page_ids, 
-          linkedin_target_ids, generation_source, generation_batch_id, 
+          linkedin_target_ids, reddit_subreddit, pinterest_board_id,
+          generation_source, generation_batch_id, 
           generation_index, generation_total)
-         VALUES ($1,$2,$3,$4,'posting',$5,$6,$7,$8,$9,$10) 
+         VALUES ($1,$2,$3,$4,'posting',$5,$6,$7,$8,$9,$10,$11,$12) 
          RETURNING *`,
       [
         req.user.id,
@@ -533,6 +591,8 @@ router.post('/', requireAuth, async (req, res) => {
         media_urls || [],
         normalizedFacebookPageIds,
         normalizedLinkedInTargetIds,
+        normalizedRedditSubreddit,
+        normalizedPinterestBoardId,
         generationSource,
         generationBatchId,
         generationIndex,
@@ -547,7 +607,9 @@ router.post('/', requireAuth, async (req, res) => {
         facebookPageIds: normalizedFacebookPageIds,
         linkedinTargetIds: normalizedLinkedInTargetIds,
         linkedInPageToken: tokens['linkedin_page']?.access_token || null,
-        linkedInPageAccounts
+        linkedInPageAccounts,
+        redditSubreddit: normalizedRedditSubreddit,
+        pinterestBoardId: normalizedPinterestBoardId
       }))
     );
 
@@ -636,7 +698,7 @@ async function refreshYouTubeTokenIfNeeded(db, userId, tokenRow) {
   const expiresAt = tokenRow.token_expires_at ? new Date(tokenRow.token_expires_at).getTime() : NaN;
   if (!Number.isNaN(expiresAt) && expiresAt > Date.now() + 5 * 60 * 1000) return tokenRow;
   try {
-    const { refreshAccessToken } = require('./utils/youtube');
+    const { refreshAccessToken } = require('../utils/youtube');
     const refreshed = await refreshAccessToken({
       refreshToken: tokenRow.refresh_token,
       clientId: process.env.GOOGLE_CLIENT_ID,
@@ -659,7 +721,7 @@ async function refreshYouTubeTokenIfNeeded(db, userId, tokenRow) {
 // uploaded via the resumable protocol. Privacy defaults
 // to private (see utils/youtube.js).
 async function postToYouTube(accessToken, content, mediaUrls) {
-  const { pickVideoUrl, buildVideoMetadata, contentTypeForUrl, uploadVideo } = require('./utils/youtube');
+  const { pickVideoUrl, buildVideoMetadata, contentTypeForUrl, uploadVideo } = require('../utils/youtube');
   const videoUrl = pickVideoUrl(mediaUrls);
   if (!videoUrl) {
     throw new Error('YouTube needs a video — attach a video file URL to the post.');
@@ -686,7 +748,7 @@ async function refreshTikTokTokenIfNeeded(db, userId, tokenRow) {
   const expiresAt = tokenRow.token_expires_at ? new Date(tokenRow.token_expires_at).getTime() : NaN;
   if (!Number.isNaN(expiresAt) && expiresAt > Date.now() + 5 * 60 * 1000) return tokenRow;
   try {
-    const { refreshAccessToken } = require('./utils/tiktok');
+    const { refreshAccessToken } = require('../utils/tiktok');
     const refreshed = await refreshAccessToken({
       refreshToken: tokenRow.refresh_token,
       clientKey: process.env.TIKTOK_CLIENT_KEY,
@@ -719,8 +781,8 @@ async function refreshTikTokTokenIfNeeded(db, userId, tokenRow) {
 // so a later retry does not silently duplicate, and the
 // record says exactly what happened.
 async function postToTikTok(accessToken, content, mediaUrls) {
-  const { pickVideoUrl } = require('./utils/youtube');
-  const { buildPostInfo, initVideoPost, fetchPublishStatus, chunkPlan } = require('./utils/tiktok');
+  const { pickVideoUrl } = require('../utils/youtube');
+  const { buildPostInfo, initVideoPost, fetchPublishStatus, chunkPlan } = require('../utils/tiktok');
   const videoUrl = pickVideoUrl(mediaUrls);
   if (!videoUrl) {
     throw new Error('TikTok needs a video — attach a video file URL to the post.');
@@ -775,11 +837,11 @@ async function postToPlatform(platform, tokenData, content, mediaUrls, options =
       case 'linkedin':
         return await postToLinkedIn(access_token, platform_user_id, content, mediaUrls, options.linkedinTargetIds || [], scope || '', options.linkedInPageToken || null, options.linkedInPageAccounts || []);
       case 'reddit':
-        return await postToReddit(access_token, content);
+        return await postToReddit(access_token, content, options.redditSubreddit);
       case 'instagram':
         return await postToInstagram(access_token, platform_user_id, content, mediaUrls);
       case 'pinterest':
-        return await postToPinterest(access_token, content, mediaUrls);
+        return await postToPinterest(access_token, content, mediaUrls, options.pinterestBoardId);
       case 'youtube':
         return await postToYouTube(access_token, content, mediaUrls);
       case 'tiktok':
@@ -876,7 +938,7 @@ async function listLinkedInTargets(accessToken, orgAccessToken = null, grantedSc
   // administer. Invalid stored ids (e.g. the old 'pages'
   // rows) are skipped by the helper.
   if (orgAccessToken && orgIds.length > 0) {
-    const { normalizeOrgId } = require('./utils/linkedin');
+    const { normalizeOrgId } = require('../utils/linkedin');
     const validIds = [...new Set(orgIds.map((id) => normalizeOrgId(id)).filter(Boolean))];
     for (const companyId of validIds) {
       let orgName = `Organization ${companyId}`;
@@ -1062,6 +1124,15 @@ function toPlatformError(platform, err) {
 
 async function postToTwitter(accessToken, accessSecret, content, mediaUrls) {
   // Twitter API v2 - OAuth 1.0a for user context
+  // Phase 10: the old version ignored mediaUrls entirely,
+  // silently dropping every image/video attached to an X
+  // post. Media is now uploaded first (images up to 4, or
+  // a single video) and attached to the tweet; text over
+  // 280 chars fails visibly instead of failing at the API
+  // with a cryptic error.
+  const { validateTweet, isVideoUrl, mimeTypeForUrl } = require('../utils/xrp');
+  const checked = validateTweet(content);
+  if (!checked.ok) throw new Error(checked.error);
   const { TwitterApi } = require('twitter-api-v2').default || require('twitter-api-v2');
   const client = new TwitterApi({
     appKey: process.env.TWITTER_API_KEY,
@@ -1069,7 +1140,22 @@ async function postToTwitter(accessToken, accessSecret, content, mediaUrls) {
     accessToken,
     accessSecret
   });
-  const tweet = await client.v2.tweet(content);
+  const mediaIds = [];
+  const urls = (mediaUrls || []).filter(Boolean);
+  if (urls.length > 0) {
+    const videos = urls.filter(isVideoUrl);
+    if (videos.length > 1) throw new Error('X allows only one video per post.');
+    if (videos.length === 0 && urls.length > 4) throw new Error('X allows at most 4 images per post.');
+    const axios = require('axios');
+    for (const url of urls) {
+      const res = await axios.get(url, { responseType: 'arraybuffer' });
+      const mediaId = await client.v1.uploadMedia(Buffer.from(res.data), { mimeType: mimeTypeForUrl(url) });
+      mediaIds.push(mediaId);
+    }
+  }
+  const tweet = mediaIds.length > 0
+    ? await client.v2.tweet(content, { media: { media_ids: mediaIds } })
+    : await client.v2.tweet(content);
   return { id: tweet.data.id, url: `https://twitter.com/i/web/status/${tweet.data.id}` };
 }
 
@@ -1166,7 +1252,7 @@ async function loadMediaBinary(mediaUrl) {
     responseType: 'arraybuffer',
     timeout: 30000,
     maxRedirects: 5,
-    headers: { 'User-Agent': 'SocialHub/1.0' },
+    headers: { 'User-Agent': 'HiSocial/1.0' },
   });
 
   const contentType = String(response.headers?.['content-type'] || '').split(';')[0].trim().toLowerCase();
@@ -1287,7 +1373,7 @@ async function publishToLinkedInTarget(accessToken, target, content, mediaUrls =
 }
 
 async function postToLinkedIn(accessToken, platformUserId, content, mediaUrls, selectedTargetIds, grantedScope = '', orgAccessToken = null, pageAccounts = []) {
-  const { orgTargetsFromPageAccounts } = require('./utils/linkedin');
+  const { orgTargetsFromPageAccounts } = require('../utils/linkedin');
   const orgIds = orgTargetsFromPageAccounts(pageAccounts).map((t) => t.replace('organization:', ''));
   const targets = await listLinkedInTargets(accessToken, orgAccessToken, grantedScope, orgIds);
 
@@ -1361,18 +1447,22 @@ async function postToLinkedIn(accessToken, platformUserId, content, mediaUrls, s
   });
 }
 
-async function postToReddit(accessToken, content) {
-  // Reddit requires subreddit - using user's profile
-  const res = await axios.post('https://oauth.reddit.com/api/submit', new URLSearchParams({
-    kind: 'self',
-    sr: 'test', // users should configure this
-    title: content.substring(0, 300),
-    text: content,
-    resubmit: 'true'
-  }), {
+async function postToReddit(accessToken, content, subreddit) {
+  // Phase 10: the old version hardcoded sr='test', so
+  // every Reddit post landed in r/test. A subreddit is
+  // now required per post (stored on the post, entered
+  // in Compose) and validated here; without a valid one
+  // the attempt fails visibly instead of posting to a
+  // subreddit nobody chose.
+  const { validateSubreddit, buildRedditSubmit } = require('../utils/xrp');
+  const checked = validateSubreddit(subreddit);
+  if (!checked.ok) throw new Error(checked.error);
+  const res = await axios.post('https://oauth.reddit.com/api/submit', new URLSearchParams(
+    buildRedditSubmit({ subreddit: checked.subreddit, content })
+  ), {
     headers: {
       Authorization: `Bearer ${accessToken}`,
-      'User-Agent': 'SocialHub/1.0'
+      'User-Agent': 'HiSocial/1.0'
     }
   });
   const postUrl = res.data?.json?.data?.url;
@@ -1523,7 +1613,7 @@ async function resolveInstagramImageUrl(inputUrl, depth = 0) {
     const headRes = await axios.head(candidate, {
       maxRedirects: 5,
       timeout: 15000,
-      headers: { 'User-Agent': 'SocialHub/1.0' },
+      headers: { 'User-Agent': 'HiSocial/1.0' },
       validateStatus: (status) => status >= 200 && status < 400,
     });
 
@@ -1540,7 +1630,7 @@ async function resolveInstagramImageUrl(inputUrl, depth = 0) {
     const getRes = await axios.get(candidate, {
       maxRedirects: 5,
       timeout: 15000,
-      headers: { 'User-Agent': 'SocialHub/1.0' },
+      headers: { 'User-Agent': 'HiSocial/1.0' },
       validateStatus: (status) => status >= 200 && status < 400,
       responseType: 'text',
     });
@@ -1590,20 +1680,61 @@ async function waitForInstagramMediaReady(accessToken, creationId) {
   }
 }
 
-async function postToPinterest(accessToken, content, mediaUrls) {
-  // Get default board first
-  const boardsRes = await axios.get('https://api.pinterest.com/v5/boards',
-    { headers: { Authorization: `Bearer ${accessToken}` } }
-  );
-  const boardId = boardsRes.data.items?.[0]?.id;
+// Phase 10: refresh a Reddit access token when it is
+// expired or has no recorded expiry. Pre-Phase-10 rows
+// never stored an expiry, so missing expiry refreshes
+// once and then stores one — after that, only genuinely
+// expired tokens refresh. On failure the old token is
+// kept and the attempt fails visibly.
+async function refreshRedditTokenIfNeeded(db, userId, tokenRow) {
+  if (!tokenRow || !tokenRow.refresh_token) return tokenRow;
+  const expiresAt = tokenRow.token_expires_at ? new Date(tokenRow.token_expires_at).getTime() : NaN;
+  if (!Number.isNaN(expiresAt) && expiresAt > Date.now() + 5 * 60 * 1000) return tokenRow;
+  try {
+    const { refreshRedditToken } = require('../utils/xrp');
+    const refreshed = await refreshRedditToken({
+      refreshToken: tokenRow.refresh_token,
+      clientId: process.env.REDDIT_CLIENT_ID,
+      clientSecret: process.env.REDDIT_CLIENT_SECRET,
+    });
+    await db.query(
+      `UPDATE social_accounts SET access_token=$1, token_expires_at=$2, updated_at=NOW()
+       WHERE user_id=$3 AND platform='reddit' AND platform_user_id=$4`,
+      [refreshed.accessToken, refreshed.expiresAt, userId, tokenRow.platform_user_id]
+    );
+    return { ...tokenRow, access_token: refreshed.accessToken, token_expires_at: refreshed.expiresAt };
+  } catch (e) {
+    console.warn('Reddit token refresh failed:', e.response?.data || e.message);
+    return tokenRow;
+  }
+}
+
+async function postToPinterest(accessToken, content, mediaUrls, boardId) {
+  // Phase 10: the old version always pinned to the first
+  // board. A board chosen in Compose is now used when
+  // set; the first board remains only as a documented
+  // fallback, not a silent default. Video URLs fail
+  // visibly: video pins need a different media_source
+  // flow, and sending one as image_url would fail
+  // confusingly at the API.
+  const { pinterestDescription, isVideoUrl } = require('../utils/xrp');
+  if (!boardId) {
+    const boardsRes = await axios.get('https://api.pinterest.com/v5/boards',
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+    boardId = boardsRes.data.items?.[0]?.id;
+  }
   if (!boardId) throw new Error('No Pinterest board found');
 
   const pinData = {
     title: content.substring(0, 100),
-    description: content,
+    description: pinterestDescription(content),
     board_id: boardId
   };
   if (mediaUrls?.length > 0) {
+    if (isVideoUrl(mediaUrls[0])) {
+      throw new Error('Pinterest video pins need a video upload flow that is not implemented yet — attach an image instead.');
+    }
     pinData.media_source = { source_type: 'image_url', url: mediaUrls[0] };
   }
   const res = await axios.post('https://api.pinterest.com/v5/pins', pinData,
@@ -1647,12 +1778,20 @@ async function publishStoredPost(pool, post) {
     tokens['tiktok'] = await refreshTikTokTokenIfNeeded(pool, post.user_id, tokens['tiktok']);
   }
 
+  // Phase 10: Reddit tokens live 1 hour and were never
+  // refreshed, so Reddit broke an hour after connect.
+  if (post.platforms.includes('reddit') && tokens['reddit']) {
+    tokens['reddit'] = await refreshRedditTokenIfNeeded(pool, post.user_id, tokens['reddit']);
+  }
+
   const results = await Promise.allSettled(
     post.platforms.map((platform) => postToPlatform(platform, tokens[platform], post.content, post.media_urls || [], {
       facebookPageIds: post.facebook_page_ids || [],
       linkedinTargetIds: post.linkedin_target_ids || [],
       linkedInPageToken: tokens['linkedin_page']?.access_token || null,
-      linkedInPageAccounts
+      linkedInPageAccounts,
+      redditSubreddit: post.reddit_subreddit,
+      pinterestBoardId: post.pinterest_board_id
     }))
   );
 

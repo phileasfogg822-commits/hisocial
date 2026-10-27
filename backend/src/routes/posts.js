@@ -2067,6 +2067,12 @@ async function recoverStuckPosts(pool) {
 
 async function runScheduledPosts(pool) {
   try {
+    // Phase 23: evaluate monitoring alerts for all users.
+    // Never throws into scheduling (evaluator catches).
+    try {
+      const { evaluateAllUsers } = require('../services/alertEvaluator');
+      await evaluateAllUsers(pool);
+    } catch { /* alert failure must not break scheduling */ }
     // Phase 21: build yesterday's snapshots when missing.
     // Never throws into scheduling (builder catches).
     try {

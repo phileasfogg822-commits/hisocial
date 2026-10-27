@@ -114,6 +114,7 @@ app.use('/api/brain', require('./routes/brain'));
 app.use('/api/monitor', require('./routes/monitorRoutes'));
 app.use('/api/linkedin-feed', require('./routes/linkedinFeed'));
 app.use('/api/analytics', require('./routes/analytics'));
+app.use('/api/alerts', require('./routes/alerts'));
 app.use('/api/media', require('./routes/media'));
 app.use('/api/autopilot', require('./routes/autopilot'));
 app.use('/api/pple', require('./routes/pple'));
@@ -559,6 +560,20 @@ async function runMigrations() {
     )`);
   await pool.query(`INSERT INTO autopilot_control (id, killed) VALUES (1, false) ON CONFLICT (id) DO NOTHING`);
   await pool.query(`ALTER TABLE ai_autopilot_configs ADD COLUMN IF NOT EXISTS consecutive_failures INTEGER NOT NULL DEFAULT 0`);
+  // Phase 23: monitoring alerts.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS monitoring_alerts (
+      id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      type VARCHAR(50) NOT NULL,
+      severity VARCHAR(20) NOT NULL,
+      message TEXT NOT NULL,
+      dedup_key VARCHAR(100) NOT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'open',
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      acknowledged_at TIMESTAMPTZ,
+      resolved_at TIMESTAMPTZ
+    )`);
   // Phase 22: post language for English vs Urdu comparisons.
   await pool.query(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS language VARCHAR(10)`);
   // Phase 21: daily analytics snapshots.

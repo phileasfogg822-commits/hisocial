@@ -665,6 +665,8 @@ export default function App() {
           />
         ) : view === 'analytics' ? (
           <AnalyticsView data={analyticsData} onRefresh={() => loadAnalytics(7)} onError={(msg) => notify(msg, 'error')} />
+        ) : view === 'alerts' ? (
+          <AlertsView onNotify={(msg) => notify(msg)} onError={(msg) => notify(msg, 'error')} />
         ) : view === 'approval' ? (
           <ApprovalInboxView onNotify={(msg) => notify(msg)} onError={(msg) => notify(msg, 'error')} />
         ) : view === 'groups' ? (
@@ -701,6 +703,73 @@ export default function App() {
 // the scheduler never publishes them. Approve publishes
 // now; a failed approval returns the post to the inbox.
 // Reject is terminal.
+function AlertsView({ onNotify, onError }) {
+  const [alerts, setAlerts] = useState([]);
+  const [busyId, setBusyId] = useState('');
+
+  const load = useCallback(async () => {
+    try {
+      const res = await axios.get(`${API}/api/alerts`);
+      setAlerts(res.data || []);
+    } catch {
+      setAlerts([]);
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const severityColor = (severity) => severity === 'critical' ? '#ef4444' : severity === 'warning' ? '#facc15' : '#60a5fa';
+
+  return (
+    <div>
+      <h2 style={styles.sectionTitle}>Monitoring Alerts</h2>
+      <p style={{ color: '#666', fontSize: 13, lineHeight: 1.7, margin: '0 0 16px' }}>
+        Alerts from the app's own tables — publish failure spikes, expiring or expired tokens,
+        auto-disabled Auto Pilot, and approval backlogs. Evaluated on every scheduler tick; a
+        persistent condition opens one alert, never a new one each tick, and it resolves itself
+        when the condition clears. No push, email, or SMS delivery yet — this view is the inbox.
+      </p>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <button style={styles.secondaryBtn} onClick={load}>Refresh</button>
+        <button style={styles.secondaryBtn} onClick={async () => {
+          try {
+            await axios.post(`${API}/api/alerts/evaluate`, {});
+            await load();
+            onNotify?.('Alerts re-evaluated');
+          } catch (e) {
+            onError?.(e.response?.data?.error || 'Failed to evaluate alerts');
+          }
+        }}>Re-evaluate now</button>
+      </div>
+      <div style={{ display: 'grid', gap: 12, marginTop: 16 }}>
+        {alerts.length === 0 ? (
+          <span style={styles.targetHint}>No alerts — everything monitored is quiet.</span>
+        ) : alerts.map((alert) => (
+          <div key={alert.id} style={styles.settingsCard}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+              <span style={{ color: severityColor(alert.severity), fontSize: 12, fontWeight: 700 }}>{alert.severity} · {alert.type}</span>
+              <span style={{ color: '#94a3b8', fontSize: 11 }}>{alert.status}{alert.created_at ? ` · ${new Date(alert.created_at).toLocaleString()}` : ''}</span>
+            </div>
+            <div style={{ color: '#ddd', fontSize: 14, lineHeight: 1.7, marginTop: 6 }}>{alert.message}</div>
+            {alert.status === 'open' && (
+              <button style={{ ...styles.secondaryBtn, marginTop: 12 }} disabled={busyId === alert.id} onClick={async () => {
+                setBusyId(alert.id);
+                try {
+                  await axios.post(`${API}/api/alerts/${alert.id}/acknowledge`, {});
+                  await load();
+                } catch (e) {
+                  onError?.(e.response?.data?.error || 'Failed to acknowledge alert');
+                }
+                setBusyId('');
+              }}>Acknowledge</button>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function ApprovalInboxView({ onNotify, onError }) {
   const [posts, setPosts] = useState([]);
   const [busyId, setBusyId] = useState('');
@@ -4464,6 +4533,7 @@ function Sidebar({ user, accounts, view, setView, onSwitchAccount, onLogout, con
               { id: 'calendar', label: 'Calendar', icon: '📅' },
               { id: 'approval', label: 'Approval Inbox', icon: '✅' },
               { id: 'analytics', label: 'Analytics', icon: '📊' },
+              { id: 'alerts', label: 'Alerts', icon: '🔔' },
             { id: 'groups', label: 'Groups', icon: '👥' },
             { id: 'custom-platforms', label: 'Custom Platforms', icon: '🔌' },
             { id: 'onboarding', label: 'Setup Wizard', icon: '🧭' },

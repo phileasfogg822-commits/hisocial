@@ -86,6 +86,36 @@ CREATE TABLE IF NOT EXISTS ai_assignments (
   UNIQUE (user_id, scope_type, scope_key, task_kind)
 );
 
+CREATE TABLE IF NOT EXISTS muse_jobs (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind VARCHAR(20) NOT NULL CHECK (kind IN ('image', 'text')),
+  prompt TEXT NOT NULL,
+  style TEXT,
+  size TEXT,
+  language VARCHAR(10),
+  group_name TEXT,
+  account_label TEXT,
+  status VARCHAR(20) NOT NULL DEFAULT 'queued'
+    CHECK (status IN ('queued', 'leased', 'done', 'error')),
+  lease_token TEXT,
+  leased_at TIMESTAMPTZ,
+  lease_expires_at TIMESTAMPTZ,
+  result_text TEXT,
+  output JSONB DEFAULT '{}'::jsonb,
+  media_path TEXT,
+  media_url TEXT,
+  error_message TEXT,
+  approval VARCHAR(20) NOT NULL DEFAULT 'pending'
+    CHECK (approval IN ('pending', 'approved', 'rejected')),
+  fallback_provider VARCHAR(50),
+  fallback_used_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_muse_jobs_user_created ON muse_jobs (user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_muse_jobs_status_created ON muse_jobs (status, created_at ASC);
+
 CREATE TABLE IF NOT EXISTS social_accounts (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,

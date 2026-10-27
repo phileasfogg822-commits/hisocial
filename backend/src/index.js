@@ -103,6 +103,7 @@ app.use('/api/onboarding', require('./routes/onboarding'));
 app.use('/api/meta', require('./routes/meta'));
 app.use('/api/pinterest', require('./routes/pinterest'));
 app.use('/api/custom-platforms', require('./routes/customPlatforms'));
+app.use('/api/muse-queue', require('./routes/museQueue'));
 app.use('/api/user', require('./routes/user'));
 const postsRouter = require('./routes/posts');
 app.use('/api/posts', postsRouter);
@@ -243,6 +244,40 @@ async function runMigrations() {
       updated_at TIMESTAMPTZ DEFAULT NOW(),
       UNIQUE (user_id, scope_type, scope_key, task_kind)
     )`);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS muse_jobs (
+      id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      kind VARCHAR(20) NOT NULL CHECK (kind IN ('image', 'text')),
+      prompt TEXT NOT NULL,
+      style TEXT,
+      size TEXT,
+      language VARCHAR(10),
+      group_name TEXT,
+      account_label TEXT,
+      status VARCHAR(20) NOT NULL DEFAULT 'queued'
+        CHECK (status IN ('queued', 'leased', 'done', 'error')),
+      lease_token TEXT,
+      leased_at TIMESTAMPTZ,
+      lease_expires_at TIMESTAMPTZ,
+      result_text TEXT,
+      output JSONB DEFAULT '{}'::jsonb,
+      media_path TEXT,
+      media_url TEXT,
+      error_message TEXT,
+      approval VARCHAR(20) NOT NULL DEFAULT 'pending'
+        CHECK (approval IN ('pending', 'approved', 'rejected')),
+      fallback_provider VARCHAR(50),
+      fallback_used_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_muse_jobs_user_created ON muse_jobs (user_id, created_at DESC)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_muse_jobs_status_created ON muse_jobs (status, created_at ASC)`);
+  // Phase 14 columns for databases created before this phase.
+  await pool.query(`ALTER TABLE muse_jobs ADD COLUMN IF NOT EXISTS approval VARCHAR(20) NOT NULL DEFAULT 'pending'`);
+  await pool.query(`ALTER TABLE muse_jobs ADD COLUMN IF NOT EXISTS fallback_provider VARCHAR(50)`);
+  await pool.query(`ALTER TABLE muse_jobs ADD COLUMN IF NOT EXISTS fallback_used_at TIMESTAMPTZ`);
   await pool.query(`ALTER TABLE social_accounts ADD COLUMN IF NOT EXISTS group_id UUID REFERENCES account_groups(id) ON DELETE SET NULL`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_social_accounts_group ON social_accounts (group_id)`);
   await pool.query(`ALTER TABLE social_accounts DROP CONSTRAINT IF EXISTS social_accounts_user_id_platform_key`);

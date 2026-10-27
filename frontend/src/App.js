@@ -939,6 +939,9 @@ function ComposeView({
   const [composeMediaItems, setComposeMediaItems] = useState([]);
   const [composeImageState, setComposeImageState] = useState('draft');
   const [composeImageGenerating, setComposeImageGenerating] = useState(false);
+  // Phase 14: Muse bridge jobs for this compose session.
+  const [museJobs, setMuseJobs] = useState([]);
+  const [museRequesting, setMuseRequesting] = useState(false);
   const [composeUploading, setComposeUploading] = useState(false);
 
   const [workflowDays, setWorkflowDays] = useState('7');
@@ -1213,6 +1216,74 @@ function ComposeView({
       onError(e.response?.data?.error || 'Failed to generate post text');
     }
     setComposeGenerating(false);
+  };
+
+  const loadMuseJobs = useCallback(async () => {
+    try {
+      const res = await axios.get(`${API}/api/muse-queue/jobs`);
+      setMuseJobs((res.data?.jobs || []).filter((j) => j.kind === 'image').slice(0, 5));
+    } catch {
+      // Bridge not configured or unreachable — the card explains.
+    }
+  }, []);
+
+  useEffect(() => {
+    loadMuseJobs();
+  }, [loadMuseJobs]);
+
+  useEffect(() => {
+    if (!museJobs.some((j) => j.status === 'queued' || j.status === 'leased')) return undefined;
+    const timer = setInterval(loadMuseJobs, 20000);
+    return () => clearInterval(timer);
+  }, [museJobs, loadMuseJobs]);
+
+  const requestMuseImage = async () => {
+    if (!composeImagePrompt.trim()) return onError('Image prompt is required');
+    setMuseRequesting(true);
+    try {
+      await axios.post(`${API}/api/muse-queue/jobs`, {
+        kind: 'image',
+        prompt: composeImagePrompt,
+        style: workflowStyle,
+        fallback_provider: composeImageProvider || undefined,
+      });
+      await loadMuseJobs();
+      onNotify?.('Muse image requested — it appears here when the worker finishes it');
+    } catch (e) {
+      onError(e.response?.data?.error || 'Failed to request Muse image');
+    }
+    setMuseRequesting(false);
+  };
+
+  const approveMuseJob = async (job) => {
+    try {
+      const res = await axios.post(`${API}/api/muse-queue/jobs/${job.id}/approve`);
+      const updated = res.data?.job;
+      if (updated?.media_url) {
+        setComposeImageUrl(updated.media_url);
+        setComposeImageState('draft');
+      }
+      await loadMuseJobs();
+    } catch (e) {
+      onError(e.response?.data?.error || 'Failed to approve Muse image');
+    }
+  };
+
+  const fallbackMuseJob = async (job) => {
+    try {
+      const fb = await axios.post(`${API}/api/muse-queue/jobs/${job.id}/fallback`);
+      const res = await axios.post(`${API}/api/ai/image`, {
+        prompt: fb.data?.prompt || composeImagePrompt,
+        style: workflowStyle,
+        aspect_ratio: workflowAspect,
+        provider: fb.data?.fallback_provider || composeImageProvider || undefined,
+      });
+      setComposeImageUrl(res.data?.url || '');
+      setComposeImageState('draft');
+      await loadMuseJobs();
+    } catch (e) {
+      onError(e.response?.data?.error || 'Fallback image generation failed');
+    }
   };
 
   const generateComposeImage = async () => {
@@ -1983,6 +2054,47 @@ function ComposeView({
                   </div>
                 </div>
               )}
+
+              <div style={{ border: '1px solid #1f2937', borderRadius: 10, padding: 10, background: '#0b1220' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <span style={{ color: '#9ca3af', fontSize: 12, fontWeight: 700 }}>Muse Images (preferred)</span>
+                  <button style={styles.secondaryBtn} onClick={loadMuseJobs}>Refresh</button>
+                </div>
+                <p style={{ color: '#666', fontSize: 12, lineHeight: 1.6, margin: '6px 0 10px' }}>
+                  Ask your Muse to generate this image. It queues here, the worker picks it up in a
+                  scheduled window, and you approve it before use. No worker connected means jobs wait
+                  in queue — they are never faked. If Muse does not deliver, fall back to an API provider.
+                </p>
+                <button style={styles.primaryBtn} onClick={requestMuseImage} disabled={museRequesting}>
+                  {museRequesting ? 'Requesting...' : 'Request Muse Image'}
+                </button>
+                {museJobs.length > 0 && (
+                  <div style={{ display: 'grid', gap: 8, marginTop: 10 }}>
+                    {museJobs.map((job) => (
+                      <div key={job.id} style={{ border: '1px solid #1f2937', borderRadius: 8, padding: 8 }}>
+                        <div style={{ color: '#ddd', fontSize: 12 }}>
+                          {job.status}{job.approval && job.status === 'done' ? ` · ${job.approval}` : ''}
+                          {job.error_message ? ` — ${job.error_message}` : ''}
+                        </div>
+                        {job.media_url && (
+                          <img src={job.media_url} alt="Muse" style={{ width: '100%', borderRadius: 8, marginTop: 8 }} />
+                        )}
+                        <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                          {job.status === 'done' && job.approval === 'pending' && job.media_url && (
+                            <>
+                              <button style={styles.secondaryBtn} onClick={() => approveMuseJob(job)}>Approve & Use</button>
+                              <button style={styles.secondaryBtn} onClick={async () => { await axios.post(`${API}/api/muse-queue/jobs/${job.id}/reject`); await loadMuseJobs(); }}>Reject</button>
+                            </>
+                          )}
+                          {(job.status === 'error' || (job.status === 'done' && job.approval === 'rejected')) && (
+                            <button style={styles.secondaryBtn} onClick={() => fallbackMuseJob(job)}>Fall back to API provider</button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </>
           ) : (
             <>

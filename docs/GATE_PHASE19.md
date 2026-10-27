@@ -88,3 +88,16 @@ Phase 18 closed head `51c18d2`. PR base:
   time of this gate-doc write; Phase 19 is accepted
   ONLY on a green run on the exact head, including
   the new tests.
+
+## CI verdict (added after the run)
+
+- Run `40544974866` on head `70ede24` (the code
+  head): **SUCCESS** — all steps green, including
+  Test backend and the frontend Docker build.
+  **Phase 19 ACCEPTED on `70ede24`.** Draft PR #19
+  created and verified (two creation attempts were
+  killed by runtime restarts; the second had
+  applied before dying, confirmed via the open-PR
+  list — no duplicate was created). The
+  confirmatory run on this gate head follows the
+  Phase 1–18 pattern.

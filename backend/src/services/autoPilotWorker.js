@@ -560,6 +560,33 @@ async function isDuplicateContent(db, userId, content) {
   return result.rowCount > 0;
 }
 
+async function isAutopilotKilled(db) {
+  try {
+    const result = await db.query(`SELECT killed FROM autopilot_control WHERE id=1`);
+    return Boolean(result.rows[0]?.killed);
+  } catch {
+    return false;
+  }
+}
+
+async function noteAutopilotFailure(db, userId) {
+  const { afterFailure } = require('../utils/autopilotSafety');
+  const config = await getAutoPilotConfig(db, userId);
+  if (!config) return;
+  const next = afterFailure(config.consecutive_failures || 0);
+  if (next.shouldDisable) {
+    await db.query(
+      `UPDATE ai_autopilot_configs SET consecutive_failures=$1, enabled=false, disabled_reason='auto-disabled after 3 consecutive failed runs', updated_at=NOW() WHERE user_id=$2`,
+      [next.consecutiveFailures, userId]
+    );
+  } else {
+    await db.query(
+      `UPDATE ai_autopilot_configs SET consecutive_failures=$1, updated_at=NOW() WHERE user_id=$2`,
+      [next.consecutiveFailures, userId]
+    );
+  }
+}
+
 async function getAutoPilotConfig(db, userId) {
   const result = await db.query(
     `SELECT * FROM ai_autopilot_configs WHERE user_id=$1 LIMIT 1`,
@@ -569,16 +596,26 @@ async function getAutoPilotConfig(db, userId) {
 }
 
 async function runAutoPilotForUser(db, userId, { force = false } = {}) {
+  const { shouldSkipRun, remainingForToday } = require('../utils/autopilotSafety');
   const config = await getAutoPilotConfig(db, userId);
   if (!config) throw new Error('Auto Pilot is not configured yet.');
-  if (!config.enabled && !force) return { status: 'skipped', reason: 'disabled', generated: 0, scheduled: 0, duplicates: 0 };
-
   const today = new Date().toISOString().slice(0, 10);
-  if (!force && config.last_run_on && String(config.last_run_on).slice(0, 10) === today) {
-    return { status: 'skipped', reason: 'already-ran-today', generated: 0, scheduled: 0, duplicates: 0 };
-  }
+  const killed = await isAutopilotKilled(db);
+  const skipReason = shouldSkipRun({ killed, enabled: config.enabled, force, lastRunOn: config.last_run_on, today });
+  if (skipReason) return { status: 'skipped', reason: skipReason, generated: 0, scheduled: 0, duplicates: 0 };
 
   const postsPerDay = clamp(Number(config.posts_per_day) || 1, 1, 5);
+  // Phase 19 daily cap: count the day's autopilot posts
+  // before scheduling more, so a force run cannot push
+  // the day past posts_per_day.
+  const todayCountRes = await db.query(
+    `SELECT COUNT(*) AS count FROM posts WHERE user_id=$1 AND autopilot_generated=true AND created_at::date = CURRENT_DATE`,
+    [userId]
+  );
+  const remaining = remainingForToday(Number(todayCountRes.rows[0]?.count || 0), postsPerDay);
+  if (remaining <= 0) {
+    return { status: 'skipped', reason: 'daily-cap-reached', generated: 0, scheduled: 0, duplicates: 0 };
+  }
   const topic = normalizeText(config.topic);
   if (!topic) throw new Error('Auto Pilot topic is required.');
 
@@ -615,7 +652,10 @@ async function runAutoPilotForUser(db, userId, { force = false } = {}) {
   let scheduled = 0;
   let duplicates = 0;
 
-  for (let i = 0; i < postsPerDay; i += 1) {
+  const postsToSchedule = Math.min(postsPerDay, remaining);
+  let failedPosts = 0;
+  for (let i = 0; i < postsToSchedule; i += 1) {
+    try {
     // Generate content using the AI Creative Engine
     const aiResult = await generatePostWithAI(
       {
@@ -697,11 +737,17 @@ async function runAutoPilotForUser(db, userId, { force = false } = {}) {
     );
 
     scheduled += 1;
+    } catch (e) {
+      // Phase 19: one bad post fails that post, not the run.
+      failedPosts += 1;
+      console.error(`🤖 AutoPilot: post ${i + 1} failed for user ${userId}:`, e.message);
+    }
   }
 
+  const runStatus = failedPosts > 0 ? (scheduled > 0 ? 'partial' : 'failed') : 'success';
   await db.query(
     `UPDATE ai_autopilot_configs
-     SET last_run_on=$2, last_run_at=NOW(), updated_at=NOW()
+     SET last_run_on=$2, last_run_at=NOW(), consecutive_failures=0, disabled_reason=NULL, updated_at=NOW()
      WHERE user_id=$1`,
     [userId, today]
   );
@@ -709,13 +755,17 @@ async function runAutoPilotForUser(db, userId, { force = false } = {}) {
   await db.query(
     `INSERT INTO ai_autopilot_runs (user_id, config_id, run_date, generated_count, scheduled_count, duplicate_count, status)
      VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-    [userId, config.id, today, generated, scheduled, duplicates, 'success']
+    [userId, config.id, today, generated, scheduled, duplicates, runStatus]
   );
 
-  return { status: 'success', generated, scheduled, duplicates, textProvider, imageProvider };
+  return { status: runStatus, generated, scheduled, duplicates, failed: failedPosts, textProvider, imageProvider };
 }
 
 async function runAutoPilotSweep(db) {
+  if (await isAutopilotKilled(db)) {
+    console.log('🤖 AutoPilot: killed — sweep skipped');
+    return { status: 'skipped', reason: 'killed' };
+  }
   const result = await db.query(
     `SELECT user_id FROM ai_autopilot_configs
      WHERE enabled=true
@@ -728,6 +778,7 @@ async function runAutoPilotSweep(db) {
       console.log(`🤖 AutoPilot: user ${row.user_id} -> ${summary.status} (scheduled: ${summary.scheduled || 0})`);
     } catch (e) {
       console.error(`🤖 AutoPilot: user ${row.user_id} failed:`, e.message);
+      await noteAutopilotFailure(db, row.user_id).catch(() => {});
       await db.query(
         `INSERT INTO ai_autopilot_runs (user_id, run_date, generated_count, scheduled_count, duplicate_count, status, error_message)
          VALUES ($1,$2,0,0,0,'failed',$3)`,
@@ -750,5 +801,6 @@ function createAutoPilotWorker({ db }) {
 module.exports = {
   createAutoPilotWorker,
   runAutoPilotForUser,
-  runAutoPilotSweep
+  runAutoPilotSweep,
+  isAutopilotKilled
 };

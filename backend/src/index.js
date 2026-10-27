@@ -549,6 +549,17 @@ async function runMigrations() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_ai_autopilot_configs_enabled ON ai_autopilot_configs(enabled, last_run_on)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_ai_autopilot_runs_user_created ON ai_autopilot_runs(user_id, created_at DESC)`);
   await pool.query(`ALTER TABLE ai_autopilot_configs ADD COLUMN IF NOT EXISTS selected_template_id UUID`);
+  // Phase 19: autopilot kill switch + failure accounting.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS autopilot_control (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      killed BOOLEAN NOT NULL DEFAULT false,
+      killed_at TIMESTAMPTZ,
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )`);
+  await pool.query(`INSERT INTO autopilot_control (id, killed) VALUES (1, false) ON CONFLICT (id) DO NOTHING`);
+  await pool.query(`ALTER TABLE ai_autopilot_configs ADD COLUMN IF NOT EXISTS consecutive_failures INTEGER NOT NULL DEFAULT 0`);
+  await pool.query(`ALTER TABLE ai_autopilot_configs ADD COLUMN IF NOT EXISTS disabled_reason TEXT`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS linkedin_feed_runs (

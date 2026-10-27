@@ -98,6 +98,7 @@ require('./passport')(passport, pool);
 // Routes
 app.use('/auth', require('./routes/auth'));
 app.use('/api/accounts', require('./routes/accounts'));
+app.use('/api/groups', require('./routes/groups'));
 app.use('/api/user', require('./routes/user'));
 const postsRouter = require('./routes/posts');
 app.use('/api/posts', postsRouter);
@@ -180,8 +181,36 @@ async function runMigrations() {
       is_active BOOLEAN DEFAULT true,
       connected_at TIMESTAMPTZ DEFAULT NOW(),
       updated_at TIMESTAMPTZ DEFAULT NOW(),
-      UNIQUE (user_id, platform)
+      UNIQUE (user_id, platform, platform_user_id)
     )`);
+  // Phase 4: groups + multi-account, migrated idempotently so
+  // existing databases upgrade on startup instead of needing a
+  // fresh volume. Order matters: account_groups first (the FK
+  // target), then the group_id column, then the constraint
+  // swap. The old (user_id, platform) constraint was stricter
+  // than the new one, so existing rows always satisfy the new
+  // (user_id, platform, platform_user_id) constraint.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS account_groups (
+      id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      description TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE (user_id, name)
+    )`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_account_groups_user ON account_groups (user_id)`);
+  await pool.query(`ALTER TABLE social_accounts ADD COLUMN IF NOT EXISTS group_id UUID REFERENCES account_groups(id) ON DELETE SET NULL`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_social_accounts_group ON social_accounts (group_id)`);
+  await pool.query(`ALTER TABLE social_accounts DROP CONSTRAINT IF EXISTS social_accounts_user_id_platform_key`);
+  await pool.query(`
+    DO $$ BEGIN
+      BEGIN
+        ALTER TABLE social_accounts ADD CONSTRAINT social_accounts_user_platform_account_key UNIQUE (user_id, platform, platform_user_id);
+      EXCEPTION WHEN duplicate_object THEN NULL;
+      END;
+    END $$`);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS posts (
       id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

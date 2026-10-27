@@ -63,7 +63,7 @@ module.exports = (passport, pool) => {
           `INSERT INTO social_accounts (user_id, platform, platform_user_id, platform_username, 
            platform_display_name, platform_avatar_url, access_token, refresh_token, token_expires_at)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-           ON CONFLICT (user_id, platform) DO UPDATE SET
+           ON CONFLICT (user_id, platform, platform_user_id) DO UPDATE SET
            access_token=$7, refresh_token=$8, token_expires_at=$9, updated_at=NOW()`,
           [user.id, platform, profile.id,
            profile.username || profile.displayName,
@@ -205,7 +205,7 @@ async function linkAccount(pool, userId, platform, profile, accessToken, refresh
     `INSERT INTO social_accounts (user_id, platform, platform_user_id, platform_username, 
      platform_display_name, platform_avatar_url, access_token, refresh_token)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-     ON CONFLICT (user_id, platform) DO UPDATE SET
+     ON CONFLICT (user_id, platform, platform_user_id) DO UPDATE SET
      access_token=$7, refresh_token=$8, platform_username=$4, 
      platform_display_name=$5, platform_avatar_url=$6, updated_at=NOW()`,
     [userId, platform, profile.id,

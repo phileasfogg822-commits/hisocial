@@ -245,7 +245,7 @@ router.get('/linkedin-org/callback', async (req, res) => {
       `INSERT INTO social_accounts
        (user_id, platform, platform_user_id, platform_username, platform_display_name, platform_avatar_url, access_token, scope)
        VALUES ($1,'linkedin_page',$2,$3,$4,$5,$6,$7)
-       ON CONFLICT (user_id, platform) DO UPDATE SET
+       ON CONFLICT (user_id, platform, platform_user_id) DO UPDATE SET
        access_token=$6,
        scope=$7,
        platform_user_id=$2,
@@ -360,7 +360,7 @@ router.get('/linkedin/callback', async (req, res) => {
       `INSERT INTO social_accounts
        (user_id, platform, platform_user_id, platform_username, platform_display_name, platform_avatar_url, access_token, scope)
        VALUES ($1,'linkedin',$2,$3,$4,$5,$6,$7)
-       ON CONFLICT (user_id, platform) DO UPDATE SET
+       ON CONFLICT (user_id, platform, platform_user_id) DO UPDATE SET
        access_token=$6,
        scope=$7,
        platform_user_id=$2,
@@ -531,7 +531,7 @@ router.get('/instagram/callback', async (req, res) => {
         `INSERT INTO social_accounts
          (user_id, platform, platform_user_id, platform_username, platform_display_name, platform_avatar_url, access_token)
          VALUES ($1,'instagram',$2,$3,$4,$5,$6)
-         ON CONFLICT (user_id, platform) DO UPDATE SET
+         ON CONFLICT (user_id, platform, platform_user_id) DO UPDATE SET
          access_token=$6, platform_user_id=$2, platform_username=$3,
          platform_display_name=$4, platform_avatar_url=$5, updated_at=NOW()`,
         [user.id, igAccount.id, igAccount.username, igAccount.username,
@@ -664,7 +664,7 @@ router.post('/instagram/confirm', async (req, res) => {
       `INSERT INTO social_accounts
        (user_id, platform, platform_user_id, platform_username, platform_display_name, platform_avatar_url, access_token)
        VALUES ($1,'instagram',$2,$3,$4,$5,$6)
-       ON CONFLICT (user_id, platform) DO UPDATE SET
+       ON CONFLICT (user_id, platform, platform_user_id) DO UPDATE SET
        access_token=$6, platform_user_id=$2, platform_username=$3,
        platform_display_name=$4, platform_avatar_url=$5, updated_at=NOW()`,
       [user.id, igAccount.id, igAccount.username, igAccount.username,
@@ -742,7 +742,7 @@ router.get('/pinterest/callback', async (req, res) => {
     await db.query(
       `INSERT INTO social_accounts (user_id, platform, platform_user_id, platform_username, access_token)
        VALUES ($1,'pinterest',$2,$3,$4)
-       ON CONFLICT (user_id, platform) DO UPDATE SET access_token=$4, updated_at=NOW()`,
+       ON CONFLICT (user_id, platform, platform_user_id) DO UPDATE SET access_token=$4, updated_at=NOW()`,
       [user.id, profile.username, profile.username, access_token]
     );
 

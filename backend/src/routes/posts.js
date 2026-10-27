@@ -83,23 +83,26 @@ router.get('/linkedin/targets', requireAuth, async (req, res) => {
 
   try {
     const tokenResult = await db.query(
-      `SELECT platform, access_token, scope
+      `SELECT platform, platform_user_id, access_token, scope
        FROM social_accounts
        WHERE user_id=$1 AND platform IN ('linkedin','linkedin_page') AND is_active=true`,
       [req.user.id]
     );
 
     const liRow = tokenResult.rows.find((r) => r.platform === 'linkedin');
-    const pageRow = tokenResult.rows.find((r) => r.platform === 'linkedin_page');
+    const pageRows = tokenResult.rows.filter((r) => r.platform === 'linkedin_page');
+    const pageRow = pageRows[0];
 
     if (!liRow?.access_token && !pageRow?.access_token) {
       return res.status(400).json({ error: 'LinkedIn is not connected for this account' });
     }
 
+    const { orgTargetsFromPageAccounts } = require('./utils/linkedin');
     const targets = await listLinkedInTargets(
       liRow?.access_token || null,
       pageRow?.access_token || null,
-      liRow?.scope || ''
+      liRow?.scope || '',
+      orgTargetsFromPageAccounts(pageRows).map((t) => t.replace('organization:', ''))
     );
     res.json(targets);
   } catch (e) {
@@ -492,6 +495,18 @@ router.post('/', requireAuth, async (req, res) => {
     const tokens = {};
     tokensResult.rows.forEach(r => { tokens[r.platform] = r; });
 
+    // Phase 7: every stored linkedin_page row (one per
+    // admin'd org), not just the one the tokens map kept.
+    let linkedInPageAccounts = [];
+    if (platforms.includes('linkedin')) {
+      const pageResult = await db.query(
+        `SELECT platform_user_id, access_token FROM social_accounts
+         WHERE user_id=$1 AND platform='linkedin_page' AND is_active=true`,
+        [req.user.id]
+      );
+      linkedInPageAccounts = pageResult.rows;
+    }
+
     // Create post record
     const postResult = await db.query(
       `INSERT INTO posts 
@@ -520,7 +535,8 @@ router.post('/', requireAuth, async (req, res) => {
       platforms.map((platform) => postToPlatform(platform, tokens[platform], content, media_urls, {
         facebookPageIds: normalizedFacebookPageIds,
         linkedinTargetIds: normalizedLinkedInTargetIds,
-        linkedInPageToken: tokens['linkedin_page']?.access_token || null
+        linkedInPageToken: tokens['linkedin_page']?.access_token || null,
+        linkedInPageAccounts
       }))
     );
 
@@ -611,7 +627,7 @@ async function postToPlatform(platform, tokenData, content, mediaUrls, options =
       case 'twitter':
         return await postToTwitter(access_token, refresh_token, content, mediaUrls);
       case 'linkedin':
-        return await postToLinkedIn(access_token, platform_user_id, content, mediaUrls, options.linkedinTargetIds || [], scope || '', options.linkedInPageToken || null);
+        return await postToLinkedIn(access_token, platform_user_id, content, mediaUrls, options.linkedinTargetIds || [], scope || '', options.linkedInPageToken || null, options.linkedInPageAccounts || []);
       case 'reddit':
         return await postToReddit(access_token, content);
       case 'instagram':
@@ -679,7 +695,7 @@ function simpleHash(text = '') {
   return String(hash);
 }
 
-async function listLinkedInTargets(accessToken, orgAccessToken = null, grantedScope = '') {
+async function listLinkedInTargets(accessToken, orgAccessToken = null, grantedScope = '', orgIds = []) {
   const targets = [];
 
   // Fetch personal profile if we have a personal token
@@ -702,11 +718,17 @@ async function listLinkedInTargets(accessToken, orgAccessToken = null, grantedSc
     }
   }
 
-  // If we have an org token from App 2 (Community Management API),
-  // use the stored company ID directly — no ACL lookup needed
-  if (orgAccessToken) {
-    const companyId = String(process.env.LINKEDIN_COMPANY_ID || '').trim();
-    if (companyId) {
+  // Phase 7: company targets come from STORED linkedin_page
+  // rows (one per admin'd org), never from a
+  // LINKEDIN_COMPANY_ID env var. The old env-var path
+  // meant no company target when the var was unset, and a
+  // wrong target when it named an org the token does not
+  // administer. Invalid stored ids (e.g. the old 'pages'
+  // rows) are skipped by the helper.
+  if (orgAccessToken && orgIds.length > 0) {
+    const { normalizeOrgId } = require('./utils/linkedin');
+    const validIds = [...new Set(orgIds.map((id) => normalizeOrgId(id)).filter(Boolean))];
+    for (const companyId of validIds) {
       let orgName = `Organization ${companyId}`;
       try {
         const orgRes = await axios.get(`https://api.linkedin.com/v2/organizations/${companyId}`, {
@@ -1114,8 +1136,10 @@ async function publishToLinkedInTarget(accessToken, target, content, mediaUrls =
   };
 }
 
-async function postToLinkedIn(accessToken, platformUserId, content, mediaUrls, selectedTargetIds, grantedScope = '', orgAccessToken = null) {
-  const targets = await listLinkedInTargets(accessToken, orgAccessToken, grantedScope);
+async function postToLinkedIn(accessToken, platformUserId, content, mediaUrls, selectedTargetIds, grantedScope = '', orgAccessToken = null, pageAccounts = []) {
+  const { orgTargetsFromPageAccounts } = require('./utils/linkedin');
+  const orgIds = orgTargetsFromPageAccounts(pageAccounts).map((t) => t.replace('organization:', ''));
+  const targets = await listLinkedInTargets(accessToken, orgAccessToken, grantedScope, orgIds);
 
   const normalizeLinkedInTargetId = (value) => {
     const raw = String(value || '').trim();
@@ -1452,11 +1476,23 @@ async function publishStoredPost(pool, post) {
   const tokens = {};
   tokensResult.rows.forEach((row) => { tokens[row.platform] = row; });
 
+  // Phase 7: every stored linkedin_page row, as above.
+  let linkedInPageAccounts = [];
+  if (post.platforms.includes('linkedin')) {
+    const pageResult = await pool.query(
+      `SELECT platform_user_id, access_token FROM social_accounts
+       WHERE user_id=$1 AND platform='linkedin_page' AND is_active=true`,
+      [post.user_id]
+    );
+    linkedInPageAccounts = pageResult.rows;
+  }
+
   const results = await Promise.allSettled(
     post.platforms.map((platform) => postToPlatform(platform, tokens[platform], post.content, post.media_urls || [], {
       facebookPageIds: post.facebook_page_ids || [],
       linkedinTargetIds: post.linkedin_target_ids || [],
-      linkedInPageToken: tokens['linkedin_page']?.access_token || null
+      linkedInPageToken: tokens['linkedin_page']?.access_token || null,
+      linkedInPageAccounts
     }))
   );
 

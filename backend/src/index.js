@@ -233,6 +233,19 @@ async function runMigrations() {
       updated_at TIMESTAMPTZ DEFAULT NOW()
     )`);
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS ai_templates (
+      id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name VARCHAR(80) NOT NULL,
+      tone VARCHAR(30) NOT NULL,
+      language VARCHAR(10) NOT NULL DEFAULT 'en',
+      format VARCHAR(20) NOT NULL DEFAULT 'post',
+      style_notes TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE (user_id, name)
+    )`);
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS ai_assignments (
       id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
       user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,

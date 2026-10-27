@@ -19,7 +19,8 @@ const isConfigured = (platform) => {
     twitter: process.env.TWITTER_API_KEY,
     reddit: process.env.REDDIT_CLIENT_ID,
     pinterest: process.env.PINTEREST_APP_ID,
-    google: process.env.GOOGLE_CLIENT_ID
+    google: process.env.GOOGLE_CLIENT_ID,
+    youtube: process.env.GOOGLE_CLIENT_ID
   };
   const val = keys[platform];
   return val && !val.startsWith('your_');
@@ -83,6 +84,87 @@ router.get('/google/callback',
   passport.authenticate('google', { failureRedirect: `${FRONTEND_URL}?error=google_login_failed` }),
   (req, res) => finishOAuth(req, res, req.user, 'google')
 );
+
+// YouTube — Phase 8. A SEPARATE consent from Google app
+// login (Phase 3): same Google Cloud project and
+// credentials, but youtube.upload + youtube.readonly
+// scopes, its own callback, and its own social_accounts
+// row (platform 'youtube'). access_type=offline and
+// prompt=consent are load-bearing: without them Google
+// may not return a refresh token, and uploads would stop
+// working when the short-lived access token expires.
+router.get('/youtube', requireAppProfile, (req, res) => {
+  if (!isConfigured('youtube')) {
+    return res.redirect(`${FRONTEND_URL}?error=youtube_not_configured`);
+  }
+  const { YOUTUBE_SCOPES, youtubeCallbackUrl } = require('../utils/youtube');
+  const params = new URLSearchParams({
+    response_type: 'code',
+    client_id: process.env.GOOGLE_CLIENT_ID,
+    redirect_uri: youtubeCallbackUrl(),
+    scope: YOUTUBE_SCOPES.join(' '),
+    access_type: 'offline',
+    prompt: 'consent',
+    state: encodeOauthState({ provider: 'youtube', userId: req.user.id, mode: 'profile' }),
+  });
+  res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params}`);
+});
+
+router.get('/youtube/callback', async (req, res) => {
+  const { code, error, error_description } = req.query;
+  if (error) {
+    return res.redirect(`${FRONTEND_URL}?error=youtube_auth_failed&msg=${encodeURIComponent(error_description || String(error))}`);
+  }
+  if (!code) return res.redirect(`${FRONTEND_URL}?error=youtube_auth_failed`);
+  try {
+    const axios = require('axios');
+    const db = req.app.locals.db;
+    const { exchangeCode, youtubeCallbackUrl } = require('../utils/youtube');
+    const tokens = await exchangeCode({
+      code: String(code),
+      redirectUri: youtubeCallbackUrl(),
+      clientId: process.env.GOOGLE_CLIENT_ID,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+    });
+    const accessToken = tokens.access_token;
+    if (!accessToken) throw new Error('YouTube exchange returned no access_token');
+    const expiresAt = tokens.expires_in ? new Date(Date.now() + tokens.expires_in * 1000) : null;
+
+    const channelRes = await axios.get('https://www.googleapis.com/youtube/v3/channels', {
+      params: { part: 'snippet', mine: 'true' },
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    const channel = (channelRes.data?.items || [])[0];
+    if (!channel) throw new Error('No YouTube channel found for this account');
+    const channelId = channel.id;
+    const channelTitle = channel.snippet?.title || channelId;
+
+    const oauthUserId = getOauthLinkedUserId(req);
+    let user = null;
+    if (oauthUserId) {
+      const userResult = await db.query('SELECT * FROM users WHERE id = $1', [oauthUserId]);
+      user = userResult.rows[0] || null;
+    }
+    if (!user) user = req.user;
+    if (!user) return res.redirect(`${FRONTEND_URL}?error=not_logged_in`);
+
+    await db.query(
+      `INSERT INTO social_accounts
+       (user_id, platform, platform_user_id, platform_username, platform_display_name, access_token, refresh_token, token_expires_at, scope)
+       VALUES ($1,'youtube',$2,$3,$4,$5,$6,$7,$8)
+       ON CONFLICT (user_id, platform, platform_user_id) DO UPDATE SET
+       access_token=$5, refresh_token=CASE WHEN $6 IS NULL THEN social_accounts.refresh_token ELSE $6 END,
+       token_expires_at=$7, scope=$8,
+       platform_username=$3, platform_display_name=$4, updated_at=NOW()`,
+      [user.id, channelId, channelTitle, channelTitle, accessToken, tokens.refresh_token || null, expiresAt, tokens.scope || null]
+    );
+
+    return finishOAuth(req, res, user, 'youtube');
+  } catch (e) {
+    console.error('YouTube callback error:', e.response?.data || e.message);
+    return res.redirect(`${FRONTEND_URL}?error=youtube_auth_failed&msg=${encodeURIComponent(e.response?.data?.error?.message || e.message)}`);
+  }
+});
 
 // Facebook
 router.get('/facebook', requireAppProfile, (req, res, next) => {

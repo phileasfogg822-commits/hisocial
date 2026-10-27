@@ -55,6 +55,17 @@ router.get('/', (req, res) => {
       supportsVideo: false
     },
     {
+      id: 'youtube',
+      name: 'YouTube',
+      color: '#FF0000',
+      icon: 'youtube',
+      configured: isConfigured('youtube'),
+      charLimit: 5000,
+      supportsImages: false,
+      requiresMedia: true,
+      supportsVideo: true
+    },
+    {
       id: 'pinterest',
       name: 'Pinterest',
       color: '#E60023',
@@ -74,7 +85,8 @@ function isConfigured(platform) {
     linkedin: process.env.LINKEDIN_CLIENT_ID,
     twitter: process.env.TWITTER_API_KEY,
     reddit: process.env.REDDIT_CLIENT_ID,
-    pinterest: process.env.PINTEREST_APP_ID
+    pinterest: process.env.PINTEREST_APP_ID,
+    youtube: process.env.GOOGLE_CLIENT_ID
   };
   const val = keys[platform];
   return !!(val && !val.startsWith('your_'));

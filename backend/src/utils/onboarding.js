@@ -36,6 +36,7 @@ function buildRedirectUri(env, platform) {
     twitter: ['TWITTER_CALLBACK_URL'],
     reddit: ['REDDIT_CALLBACK_URL'],
     pinterest: ['PINTEREST_CALLBACK_URL'],
+    youtube: ['YOUTUBE_CALLBACK_URL'],
   }[platform];
   if (!callbackVars) return null;
   for (const name of callbackVars) {
@@ -50,6 +51,7 @@ function buildRedirectUri(env, platform) {
     twitter: '/auth/twitter/callback',
     reddit: '/auth/reddit/callback',
     pinterest: '/auth/pinterest/callback',
+    youtube: '/auth/youtube/callback',
   };
   return origin + paths[platform];
 }
@@ -127,6 +129,17 @@ const SPECS = [
     redirectFieldNote: 'Paste it in the redirect URI field of your Reddit app.',
     requiredVars: ['REDDIT_CLIENT_ID', 'REDDIT_CLIENT_SECRET'],
     callbackVar: 'REDDIT_CALLBACK_URL',
+  },
+  {
+    id: 'youtube',
+    name: 'YouTube',
+    connectId: 'youtube',
+    portalUrl: 'https://console.cloud.google.com',
+    portalName: 'Google Cloud Console',
+    productNote: 'Use the SAME Google Cloud project as the app login, but a separate consent: enable the YouTube Data API v3, add youtube.upload + youtube.readonly scopes, and create a channel for the Google account first — an account without a channel cannot upload.',
+    redirectFieldNote: 'Paste it under APIs & Services > Credentials > your OAuth client > Authorized redirect URIs.',
+    requiredVars: ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'],
+    callbackVar: 'YOUTUBE_CALLBACK_URL',
   },
   {
     id: 'pinterest',

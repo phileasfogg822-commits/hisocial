@@ -65,7 +65,7 @@ describe('env-var checklist', () => {
 describe('onboarding specs', () => {
   it('covers every platform in /api/platforms, plus the LinkedIn company variant', () => {
     const ids = SPECS.map((s) => s.id);
-    for (const expected of ['facebook', 'instagram', 'linkedin', 'linkedin_page', 'twitter', 'reddit', 'pinterest']) {
+    for (const expected of ['facebook', 'instagram', 'linkedin', 'linkedin_page', 'twitter', 'reddit', 'pinterest', 'youtube']) {
       assert.ok(ids.includes(expected), `missing spec for ${expected}`);
     }
   });

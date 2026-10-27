@@ -55,6 +55,17 @@ router.get('/', (req, res) => {
       supportsVideo: false
     },
     {
+      id: 'tiktok',
+      name: 'TikTok',
+      color: '#000000',
+      icon: 'tiktok',
+      configured: isConfigured('tiktok'),
+      charLimit: 2200,
+      supportsImages: false,
+      requiresMedia: true,
+      supportsVideo: true
+    },
+    {
       id: 'youtube',
       name: 'YouTube',
       color: '#FF0000',
@@ -86,7 +97,8 @@ function isConfigured(platform) {
     twitter: process.env.TWITTER_API_KEY,
     reddit: process.env.REDDIT_CLIENT_ID,
     pinterest: process.env.PINTEREST_APP_ID,
-    youtube: process.env.GOOGLE_CLIENT_ID
+    youtube: process.env.GOOGLE_CLIENT_ID,
+    tiktok: process.env.TIKTOK_CLIENT_KEY
   };
   const val = keys[platform];
   return !!(val && !val.startsWith('your_'));

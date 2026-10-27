@@ -124,3 +124,18 @@ closed head `1fb0669`. PR base: `phase-9-tiktok`.
   time of this gate-doc write; Phase 10 is accepted
   ONLY on a green run on the exact head, including
   the new tests.
+
+## CI verdict (added after the runs)
+
+- First head `79772b4`: run `40480463665`
+  **FAILURE** ("Wait for services to be ready" —
+  backend startup crash, see fixes above).
+- Fix head `9ebdae2`: superseded before its verdict
+  by the require-path fix (the regression test it
+  added failed locally and exposed the defect).
+- Fix head `17dc885`: run `40483515077`
+  **SUCCESS** — all steps green, including Test
+  backend and the frontend Docker build.
+  **Phase 10 ACCEPTED on `17dc885`.** Draft PR #10
+  created and verified. The confirmatory run on
+  this gate head follows the Phase 1–9 pattern.

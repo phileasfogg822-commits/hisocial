@@ -684,6 +684,8 @@ export default function App() {
             onRefreshAiProviders={loadAiProviders}
             theme={theme}
             onThemeChange={setTheme}
+            onNotify={(msg) => notify(msg)}
+            onError={(msg) => notify(msg, 'error')}
           />
         )}
       </main>
@@ -3531,7 +3533,7 @@ function LibraryView({ posts, onRefresh, platforms = [], connectedPlatforms = []
 }
 
 // ─── Settings View ─────────────────────────────────────────────────────────────
-function SettingsView({ platforms, connectedPlatforms, connectedAccountDetails, onConnect, onDisconnect, user, onProfileSave, aiProviders = [], onRefreshAiProviders, theme = 'dark', onThemeChange }) {
+function SettingsView({ platforms, connectedPlatforms, connectedAccountDetails, onConnect, onDisconnect, user, onProfileSave, aiProviders = [], onRefreshAiProviders, theme = 'dark', onThemeChange, onNotify, onError }) {
   const [name, setName] = useState(user.name || '');
   const [avatarUrl, setAvatarUrl] = useState(user.avatar_url || '');
   const [aiTestProvider, setAiTestProvider] = useState('gemini');
@@ -3889,6 +3891,122 @@ function SettingsView({ platforms, connectedPlatforms, connectedAccountDetails, 
             </div>
           )}
         </div>
+      </div>
+
+      <AiAssignmentsSection aiProviders={aiProviders} onNotify={onNotify} onError={onError} />
+    </div>
+  );
+}
+
+// Phase 13: per-scope AI assignment management. Precedence
+// at generation time: explicit request > account > group
+// > global > registry default. Muse may be assigned (it
+// records the preference for Phase 14) but generation
+// refuses it plainly until the queue lands.
+function AiAssignmentsSection({ aiProviders = [], onNotify, onError }) {
+  const [assignments, setAssignments] = useState([]);
+  const [options, setOptions] = useState({ groups: [], accounts: [] });
+  const [scopeType, setScopeType] = useState('global');
+  const [scopeKey, setScopeKey] = useState('');
+  const [taskKind, setTaskKind] = useState('text');
+  const [providerId, setProviderId] = useState('');
+
+  const load = useCallback(async () => {
+    try {
+      const [aRes, oRes] = await Promise.all([
+        axios.get(`${API}/api/ai/assignments`),
+        axios.get(`${API}/api/ai/assignment-options`),
+      ]);
+      setAssignments(aRes.data || []);
+      setOptions(oRes.data || { groups: [], accounts: [] });
+    } catch (e) {
+      onError?.(e.response?.data?.error || 'Failed to load AI assignments');
+    }
+  }, [onError]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const capableProviders = aiProviders.filter((p) => taskKind === 'text' ? p.hasText : p.hasImage);
+  const scopeLabel = (a) => {
+    if (a.scope_type === 'global') return 'Global default';
+    if (a.scope_type === 'group') return `Group: ${options.groups.find((g) => String(g.id) === String(a.scope_key))?.name || a.scope_key}`;
+    return `Account: ${options.accounts.find((x) => String(x.id) === String(a.scope_key))?.platform_username || a.scope_key}`;
+  };
+
+  const save = async (e) => {
+    e.preventDefault();
+    if (!providerId) return;
+    try {
+      await axios.post(`${API}/api/ai/assignments`, {
+        scope_type: scopeType,
+        scope_key: scopeType === 'global' ? 'global' : scopeKey,
+        task_kind: taskKind,
+        provider_id: providerId,
+      });
+      await load();
+      onNotify?.('AI assignment saved');
+    } catch (err) {
+      onError?.(err.response?.data?.error || 'Failed to save AI assignment');
+    }
+  };
+
+  const remove = async (id) => {
+    try {
+      await axios.delete(`${API}/api/ai/assignments/${id}`);
+      await load();
+      onNotify?.('AI assignment removed');
+    } catch (err) {
+      onError?.(err.response?.data?.error || 'Failed to remove AI assignment');
+    }
+  };
+
+  return (
+    <div style={styles.settingsCard}>
+      <h3 style={styles.settingsSubtitle}>AI assignments</h3>
+      <p style={{ color: '#555', fontSize: 13, lineHeight: 1.7, margin: '0 0 12px' }}>
+        Choose which AI generates what. An explicit provider on a request wins, then the account's
+        assignment, then its group's, then the global default. Assigning Muse records your preference
+        for the Phase 14 queue — generation refuses it plainly until then.
+      </p>
+      <form onSubmit={save} style={{ display: 'grid', gap: 10 }}>
+        <select style={styles.input} value={scopeType} onChange={(e) => { setScopeType(e.target.value); setScopeKey(''); }}>
+          <option value="global">Global default</option>
+          <option value="group">One group</option>
+          <option value="account">One account</option>
+        </select>
+        {scopeType === 'group' && (
+          <select style={styles.input} value={scopeKey} onChange={(e) => setScopeKey(e.target.value)} required>
+            <option value="">Select a group</option>
+            {options.groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+          </select>
+        )}
+        {scopeType === 'account' && (
+          <select style={styles.input} value={scopeKey} onChange={(e) => setScopeKey(e.target.value)} required>
+            <option value="">Select an account</option>
+            {options.accounts.map((a) => <option key={a.id} value={a.id}>{a.platform} — {a.platform_username}</option>)}
+          </select>
+        )}
+        <select style={styles.input} value={taskKind} onChange={(e) => setTaskKind(e.target.value)}>
+          <option value="text">Text generation</option>
+          <option value="image">Image generation</option>
+        </select>
+        <select style={styles.input} value={providerId} onChange={(e) => setProviderId(e.target.value)} required>
+          <option value="">Select a provider</option>
+          {capableProviders.map((p) => <option key={p.id} value={p.id}>{p.name}{p.preferred ? ' ★ preferred' : ''}{p.configured ? '' : ' (not configured)'}</option>)}
+        </select>
+        <button style={styles.primaryBtn} type="submit">Save assignment</button>
+      </form>
+      <div style={{ marginTop: 14 }}>
+        {assignments.length === 0 ? (
+          <span style={styles.targetHint}>No assignments yet — generation uses the registry default.</span>
+        ) : assignments.map((a) => (
+          <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '8px 0', borderBottom: '1px solid #2a2a3e' }}>
+            <span style={{ color: '#ddd', fontSize: 13 }}>
+              {scopeLabel(a)} · {a.task_kind} → <strong>{aiProviders.find((p) => p.id === a.provider_id)?.name || a.provider_id}</strong>
+            </span>
+            <button style={styles.secondaryBtn} onClick={() => remove(a.id)}>Remove</button>
+          </div>
+        ))}
       </div>
     </div>
   );

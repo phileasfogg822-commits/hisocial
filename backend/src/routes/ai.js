@@ -61,6 +61,69 @@ router.get('/providers', requireAuth, async (req, res) => {
   res.json(providers);
 });
 
+// Phase 13: assignment CRUD + picker options. Scopes:
+// global (every generation), group (an account group),
+// account (one connected social account). Precedence is
+// resolved by utils/aiAssignments, not here.
+const { validateAssignmentInput, resolveAiProvider } = require('../utils/aiAssignments');
+
+router.get('/assignments', requireAuth, async (req, res) => {
+  const db = req.app.locals.db;
+  const result = await db.query(
+    `SELECT id, scope_type, scope_key, task_kind, provider_id, updated_at
+     FROM ai_assignments WHERE user_id=$1 ORDER BY scope_type, task_kind`,
+    [req.user.id]
+  );
+  res.json(result.rows);
+});
+
+router.get('/assignment-options', requireAuth, async (req, res) => {
+  const db = req.app.locals.db;
+  const [groups, accounts] = await Promise.all([
+    db.query(`SELECT id, name FROM account_groups WHERE user_id=$1 ORDER BY name`, [req.user.id]),
+    db.query(
+      `SELECT id, platform, platform_username FROM social_accounts WHERE user_id=$1 AND is_active=true ORDER BY platform, platform_username`,
+      [req.user.id]
+    ),
+  ]);
+  res.json({ groups: groups.rows, accounts: accounts.rows });
+});
+
+router.post('/assignments', requireAuth, async (req, res) => {
+  const db = req.app.locals.db;
+  const checked = validateAssignmentInput(req.body || {});
+  if (!checked.ok) return res.status(400).json({ error: checked.error });
+  const a = checked.assignment;
+  // Ownership: a group or account assignment must name
+  // one of this user's own groups or accounts.
+  if (a.scope_type === 'group') {
+    const own = await db.query(`SELECT id FROM account_groups WHERE id=$1 AND user_id=$2`, [a.scope_key, req.user.id]);
+    if (!own.rows[0]) return res.status(404).json({ error: 'Group not found' });
+  }
+  if (a.scope_type === 'account') {
+    const own = await db.query(`SELECT id FROM social_accounts WHERE id=$1 AND user_id=$2`, [a.scope_key, req.user.id]);
+    if (!own.rows[0]) return res.status(404).json({ error: 'Account not found' });
+  }
+  const result = await db.query(
+    `INSERT INTO ai_assignments (user_id, scope_type, scope_key, task_kind, provider_id)
+     VALUES ($1,$2,$3,$4,$5)
+     ON CONFLICT (user_id, scope_type, scope_key, task_kind) DO UPDATE SET provider_id=$5, updated_at=NOW()
+     RETURNING *`,
+    [req.user.id, a.scope_type, a.scope_key, a.task_kind, a.provider_id]
+  );
+  res.status(201).json(result.rows[0]);
+});
+
+router.delete('/assignments/:id', requireAuth, async (req, res) => {
+  const db = req.app.locals.db;
+  const result = await db.query(
+    `DELETE FROM ai_assignments WHERE id=$1 AND user_id=$2 RETURNING id`,
+    [req.params.id, req.user.id]
+  );
+  if (!result.rows[0]) return res.status(404).json({ error: 'Assignment not found' });
+  res.json({ deleted: true });
+});
+
 router.post('/test', requireAuth, async (req, res) => {
   const { provider = 'gemini', prompt = 'Reply with one short sentence confirming the Gemini API key is working.' } = req.body || {};
   const db = req.app.locals.db;
@@ -133,7 +196,9 @@ router.post('/generate', requireAuth, async (req, res) => {
     count = 3,
     niche = '',
     platforms = [],
-    provider: preferredProvider = ''
+    provider: preferredProvider = '',
+    group_id = null,
+    account_id = null
   } = req.body;
 
   if (!topic?.trim()) {
@@ -151,13 +216,46 @@ router.post('/generate', requireAuth, async (req, res) => {
   // preferred generator, but generation via the task
   // queue lands in Phase 14. Refuse it plainly here
   // instead of silently substituting another provider.
-  if (preferredProvider === 'muse') {
+  // Phase 13: when no explicit provider is given, the
+  // assignment chain (account > group > global) picks
+  // one; an explicit provider still wins outright.
+  let resolvedProvider = null;
+  if (!preferredProvider) {
+    const db = req.app.locals.db;
+    try {
+      const rows = await db.query(
+        `SELECT scope_type, scope_key, task_kind, provider_id FROM ai_assignments WHERE user_id=$1`,
+        [req.user.id]
+      );
+      let accountGroupId = group_id;
+      if (!accountGroupId && account_id) {
+        const account = await db.query(
+          `SELECT group_id FROM social_accounts WHERE id=$1 AND user_id=$2`,
+          [account_id, req.user.id]
+        );
+        accountGroupId = account.rows[0]?.group_id || null;
+      }
+      resolvedProvider = resolveAiProvider({
+        assignments: rows.rows,
+        taskKind: 'text',
+        accountScopeKey: account_id,
+        groupScopeKey: accountGroupId,
+        configuredIds: new Set([...available.map((p) => p.id), 'muse']),
+      });
+    } catch {
+      resolvedProvider = null;
+    }
+  }
+
+  if (preferredProvider === 'muse' || resolvedProvider === 'muse') {
     return res.status(400).json({
       error: 'Muse generation arrives with the Phase 14 task queue. Pick another provider for now.'
     });
   }
 
-  const preferred = available.find(p => p.id === preferredProvider) || available[0];
+  const preferred = available.find(p => p.id === preferredProvider)
+    || (resolvedProvider && available.find(p => p.id === resolvedProvider))
+    || available[0];
 
   // Build fallback chain: preferred first, then remaining providers in configured order
   const providerChain = [preferred, ...available.filter(p => p.id !== preferred.id)];

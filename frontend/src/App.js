@@ -665,6 +665,8 @@ export default function App() {
           />
         ) : view === 'analytics' ? (
           <AnalyticsView data={analyticsData} onRefresh={() => loadAnalytics(7)} onError={(msg) => notify(msg, 'error')} />
+        ) : view === 'reports' ? (
+          <ReportsView onNotify={(msg) => notify(msg)} onError={(msg) => notify(msg, 'error')} />
         ) : view === 'monetization' ? (
           <MonetizationView onNotify={(msg) => notify(msg)} onError={(msg) => notify(msg, 'error')} />
         ) : view === 'alerts' ? (
@@ -705,6 +707,88 @@ export default function App() {
 // the scheduler never publishes them. Approve publishes
 // now; a failed approval returns the post to the inbox.
 // Reject is terminal.
+function ReportsView({ onNotify, onError }) {
+  const [end, setEnd] = useState(() => new Date().toISOString().slice(0, 10));
+  const [report, setReport] = useState(null);
+
+  const load = useCallback(async () => {
+    try {
+      const res = await axios.get(`${API}/api/reports/weekly`, { params: { end } });
+      setReport(res.data || null);
+    } catch (e) {
+      setReport(null);
+      onError?.(e.response?.data?.error || 'Failed to load report');
+    }
+  }, [end, onError]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const downloadCsv = async () => {
+    try {
+      const res = await axios.get(`${API}/api/reports/weekly.csv`, { params: { end }, responseType: 'blob' });
+      const url = window.URL.createObjectURL(new Blob([res.data], { type: 'text/csv' }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `weekly-report-${report?.period?.start}-to-${report?.period?.end}.csv`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+      onNotify?.('Weekly report downloaded');
+    } catch (e) {
+      onError?.('Failed to download report');
+    }
+  };
+
+  return (
+    <div>
+      <h2 style={styles.sectionTitle}>Weekly Report</h2>
+      <p style={{ color: '#666', fontSize: 13, lineHeight: 1.7, margin: '0 0 16px' }}>
+        One 7-day rollup from data the app already has: daily snapshots, the monetization ledger,
+        and open alerts. Nothing here is estimated or pulled from a platform — every figure traces
+        to a row in one of those tables. No emailed or scheduled delivery yet; download the CSV here.
+      </p>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        <input style={styles.aiInput} type="date" value={end} onChange={(e) => setEnd(e.target.value)} />
+        <button style={styles.secondaryBtn} onClick={load}>Load week</button>
+        <button style={styles.secondaryBtn} onClick={downloadCsv} disabled={!report}>Download CSV</button>
+      </div>
+      {report && (
+        <>
+          <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', marginTop: 16 }}>
+            <div style={styles.settingsCard}><div style={{ color: '#64748b', fontSize: 12 }}>Period</div><div style={{ color: '#fff', fontWeight: 700, fontSize: 14 }}>{report.period.start} → {report.period.end}</div></div>
+            <div style={styles.settingsCard}><div style={{ color: '#64748b', fontSize: 12 }}>Published</div><div style={{ color: '#fff', fontWeight: 700, fontSize: 24 }}>{report.totals.published || 0}</div></div>
+            <div style={styles.settingsCard}><div style={{ color: '#64748b', fontSize: 12 }}>Failed</div><div style={{ color: '#fff', fontWeight: 700, fontSize: 24 }}>{report.totals.failed || 0}</div></div>
+            <div style={styles.settingsCard}><div style={{ color: '#64748b', fontSize: 12 }}>Created</div><div style={{ color: '#fff', fontWeight: 700, fontSize: 24 }}>{report.totals.created || 0}</div></div>
+            <div style={styles.settingsCard}><div style={{ color: '#64748b', fontSize: 12 }}>Open alerts</div><div style={{ color: '#fff', fontWeight: 700, fontSize: 24 }}>{report.openAlertCount || 0}</div></div>
+          </div>
+          <div style={styles.settingsCard}>
+            <h3 style={styles.settingsSubtitle}>By Platform</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {report.byPlatform.length === 0 ? (
+                <div style={{ color: '#64748b', fontSize: 13 }}>No snapshot data for this week.</div>
+              ) : report.byPlatform.map((row) => (
+                <div key={row.platform} style={{ display: 'grid', gridTemplateColumns: '1.2fr repeat(3, 1fr)', gap: 8, padding: '8px 10px', border: '1px solid #1f2937', borderRadius: 8 }}>
+                  <span style={{ color: '#ddd', fontSize: 12, fontWeight: 700 }}>{row.platform}</span>
+                  <span style={{ color: '#ddd', fontSize: 12 }}>Published: {row.published}</span>
+                  <span style={{ color: '#ddd', fontSize: 12 }}>Failed: {row.failed}</span>
+                  <span style={{ color: '#ddd', fontSize: 12 }}>Created: {row.created}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div style={styles.settingsCard}>
+            <h3 style={styles.settingsSubtitle}>Monetization net (per currency)</h3>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {Object.entries(report.monetization?.netByCurrency || {}).map(([currency, net]) => (
+                <span key={currency} style={{ color: '#ddd', fontSize: 12, border: '1px solid #1f2937', borderRadius: 8, padding: '6px 10px' }}>{currency}: {net}</span>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function MonetizationView({ onNotify, onError }) {
   const [entries, setEntries] = useState([]);
   const [summary, setSummary] = useState(null);
@@ -4634,6 +4718,7 @@ function Sidebar({ user, accounts, view, setView, onSwitchAccount, onLogout, con
               { id: 'analytics', label: 'Analytics', icon: '📊' },
               { id: 'alerts', label: 'Alerts', icon: '🔔' },
               { id: 'monetization', label: 'Monetization', icon: '💰' },
+              { id: 'reports', label: 'Reports', icon: '📋' },
             { id: 'groups', label: 'Groups', icon: '👥' },
             { id: 'custom-platforms', label: 'Custom Platforms', icon: '🔌' },
             { id: 'onboarding', label: 'Setup Wizard', icon: '🧭' },

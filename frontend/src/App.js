@@ -4740,6 +4740,8 @@ function AutoPilotView({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [running, setRunning] = useState(false);
+  // Phase 19: kill switch status.
+  const [killStatus, setKillStatus] = useState({ killed: false });
   const [runsLoading, setRunsLoading] = useState(false);
   const [runs, setRuns] = useState([]);
   const [postsLoading, setPostsLoading] = useState(false);
@@ -4906,12 +4908,22 @@ function AutoPilotView({
     }
   }, []);
 
+  const loadKillStatus = useCallback(async () => {
+    try {
+      const res = await axios.get(`${API}/api/autopilot/status`);
+      setKillStatus(res.data || { killed: false });
+    } catch {
+      setKillStatus({ killed: false });
+    }
+  }, []);
+
   useEffect(() => {
     loadConfig();
     loadRuns();
     loadAutoPilotPosts();
     loadTemplates();
-  }, [loadConfig, loadRuns, loadAutoPilotPosts, loadTemplates]);
+    loadKillStatus();
+  }, [loadConfig, loadRuns, loadAutoPilotPosts, loadTemplates, loadKillStatus]);
 
   useEffect(() => {
     if (canUseFacebookPages) onLoadFacebookPages?.();
@@ -5084,6 +5096,24 @@ function AutoPilotView({
     <div style={styles.settingsWrap}>
       <h2 style={styles.sectionTitle}>Auto Pilot</h2>
       <p style={styles.sectionSubtitle}>Autonomously generate and schedule daily posts for connected platforms.</p>
+
+      <div style={{ ...styles.settingsCard, border: killStatus.killed ? '1px solid #ef4444' : undefined }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span style={{ color: killStatus.killed ? '#ef4444' : '#4ade80', fontSize: 13, fontWeight: 700 }}>
+            {killStatus.killed ? '⛔ Auto Pilot is KILLED — no run starts, not even a manual one' : 'Auto Pilot kill switch is off'}
+          </span>
+          {killStatus.killed ? (
+            <button style={styles.primaryBtn} onClick={async () => { await axios.post(`${API}/api/autopilot/resume`); await loadKillStatus(); onNotify?.('Auto Pilot resumed'); }}>Resume Auto Pilot</button>
+          ) : (
+            <button style={styles.secondaryBtn} onClick={async () => { await axios.post(`${API}/api/autopilot/kill`); await loadKillStatus(); onNotify?.('Auto Pilot killed — no run will start'); }}>Kill Auto Pilot</button>
+          )}
+        </div>
+        {killStatus.disabled_reason && (
+          <div style={{ color: '#f59e0b', fontSize: 12, marginTop: 8 }}>
+            Auto-disabled: {killStatus.disabled_reason} (consecutive failures: {killStatus.consecutive_failures}). Re-enable below to run again.
+          </div>
+        )}
+      </div>
 
       <div style={styles.settingsCard}>
         <label style={{ ...styles.label, display: 'flex', alignItems: 'center', gap: 10 }}>

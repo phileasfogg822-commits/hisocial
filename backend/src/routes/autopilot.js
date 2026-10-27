@@ -134,6 +134,48 @@ router.put('/config', requireAuth, async (req, res) => {
   }
 });
 
+// Phase 19: kill switch + status. Kill is global for
+// this instance and outranks everything, including a
+// forced run-now: when killed, no run starts at all.
+router.get('/status', requireAuth, async (req, res) => {
+  const db = req.app.locals.db;
+  try {
+    const [killRes, configRes] = await Promise.all([
+      db.query(`SELECT killed, killed_at FROM autopilot_control WHERE id=1`),
+      db.query(`SELECT enabled, consecutive_failures, disabled_reason FROM ai_autopilot_configs WHERE user_id=$1`, [req.user.id]),
+    ]);
+    res.json({
+      killed: Boolean(killRes.rows[0]?.killed),
+      killed_at: killRes.rows[0]?.killed_at || null,
+      enabled: Boolean(configRes.rows[0]?.enabled),
+      consecutive_failures: configRes.rows[0]?.consecutive_failures || 0,
+      disabled_reason: configRes.rows[0]?.disabled_reason || null,
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.post('/kill', requireAuth, async (req, res) => {
+  const db = req.app.locals.db;
+  try {
+    await db.query(`UPDATE autopilot_control SET killed=true, killed_at=NOW(), updated_at=NOW() WHERE id=1`);
+    res.json({ killed: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.post('/resume', requireAuth, async (req, res) => {
+  const db = req.app.locals.db;
+  try {
+    await db.query(`UPDATE autopilot_control SET killed=false, killed_at=NULL, updated_at=NOW() WHERE id=1`);
+    res.json({ killed: false });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 router.post('/run-now', requireAuth, async (req, res) => {
   const db = req.app.locals.db;
   const userId = req.user.id;

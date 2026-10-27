@@ -231,6 +231,18 @@ async function runMigrations() {
       last_tested_at TIMESTAMPTZ,
       updated_at TIMESTAMPTZ DEFAULT NOW()
     )`);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ai_assignments (
+      id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      scope_type VARCHAR(20) NOT NULL,
+      scope_key TEXT NOT NULL,
+      task_kind VARCHAR(20) NOT NULL,
+      provider_id VARCHAR(50) NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE (user_id, scope_type, scope_key, task_kind)
+    )`);
   await pool.query(`ALTER TABLE social_accounts ADD COLUMN IF NOT EXISTS group_id UUID REFERENCES account_groups(id) ON DELETE SET NULL`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_social_accounts_group ON social_accounts (group_id)`);
   await pool.query(`ALTER TABLE social_accounts DROP CONSTRAINT IF EXISTS social_accounts_user_id_platform_key`);

@@ -87,3 +87,16 @@ Branch: `phase-18-approval-inbox`, cut from Phase
   time of this gate-doc write; Phase 18 is accepted
   ONLY on a green run on the exact head, including
   the new tests.
+
+## CI verdict (added after the run)
+
+- Run `40529104002` on head `4817e60` (the code
+  head): **SUCCESS** — all steps green, including
+  Test backend and the frontend Docker build.
+  **Phase 18 ACCEPTED on `4817e60`.** Draft PR #18
+  created and verified (the first creation attempt
+  died on a runtime restart before applying; the
+  open-PR list was re-checked and the PR was
+  created cleanly, no duplicate). The confirmatory
+  run on this gate head follows the Phase 1–17
+  pattern.

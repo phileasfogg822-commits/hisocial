@@ -66,3 +66,12 @@ Branch: `phase-25-weekly-report`, cut from Phase
   time of this gate-doc write; Phase 25 is accepted
   ONLY on a green run on the exact head, including
   the new tests.
+
+## CI verdict (added after the run)
+
+- Run `40576039464` on head `0cea591` (the code
+  head): **SUCCESS** — all steps green, including
+  Test backend and the frontend Docker build.
+  **Phase 25 ACCEPTED on `0cea591`.** Draft PR #25
+  created and verified. The confirmatory run on
+  this gate head follows the Phase 1–24 pattern.

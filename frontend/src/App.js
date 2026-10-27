@@ -919,6 +919,12 @@ function ComposeView({
   // Phase 15: generation language + format packs.
   const [composeLanguage, setComposeLanguage] = useState('en');
   const [composeFormat, setComposeFormat] = useState('post');
+  // Phase 16: templates + style notes + duplicate flags.
+  const [templates, setTemplates] = useState([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState('');
+  const [newTemplateName, setNewTemplateName] = useState('');
+  const [styleNotes, setStyleNotes] = useState('');
+  const [generateDuplicates, setGenerateDuplicates] = useState([]);
   const [composeImageProvider, setComposeImageProvider] = useState('');
 
   const [tone, setTone] = useState('professional');
@@ -1198,7 +1204,9 @@ function ComposeView({
         platforms: selectedPlatforms,
         language: composeLanguage,
         format: composeFormat,
+        style_notes: styleNotes || undefined,
       });
+      setGenerateDuplicates(res.data?.duplicates || []);
       const post = res.data?.posts?.[0] || {};
       // Handle both old (string) and new (object) formats for backward compatibility
       const isStructuredPost = typeof post === 'object' && !Array.isArray(post);
@@ -1221,6 +1229,47 @@ function ComposeView({
       onError(e.response?.data?.error || 'Failed to generate post text');
     }
     setComposeGenerating(false);
+  };
+
+  const loadTemplates = useCallback(async () => {
+    try {
+      const res = await axios.get(`${API}/api/ai/templates`);
+      setTemplates(res.data || []);
+    } catch {
+      // Templates unavailable — generation still works.
+    }
+  }, []);
+
+  useEffect(() => {
+    loadTemplates();
+  }, [loadTemplates]);
+
+  const applyTemplate = (id) => {
+    setSelectedTemplateId(id);
+    const t = templates.find((x) => String(x.id) === String(id));
+    if (!t) return;
+    setTone(t.tone);
+    setComposeLanguage(t.language || 'en');
+    setComposeFormat(t.format || 'post');
+    setStyleNotes(t.style_notes || '');
+  };
+
+  const saveTemplate = async () => {
+    if (!newTemplateName.trim()) return onError('Template name is required');
+    try {
+      await axios.post(`${API}/api/ai/templates`, {
+        name: newTemplateName.trim(),
+        tone,
+        language: composeLanguage,
+        format: composeFormat,
+        style_notes: styleNotes || undefined,
+      });
+      setNewTemplateName('');
+      await loadTemplates();
+      onNotify?.('Template saved');
+    } catch (e) {
+      onError(e.response?.data?.error || 'Failed to save template');
+    }
   };
 
   const loadMuseJobs = useCallback(async () => {
@@ -1973,6 +2022,18 @@ function ComposeView({
                   <option value="script">Script</option>
                 </select>
               </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <select style={styles.aiSelect} value={selectedTemplateId} onChange={(e) => applyTemplate(e.target.value)}>
+                  <option value="">Template: none</option>
+                  {templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
+                <input style={styles.aiInput} value={newTemplateName} onChange={(e) => setNewTemplateName(e.target.value)} placeholder="New template name" />
+                <button style={styles.secondaryBtn} onClick={saveTemplate}>Save current setup as template</button>
+                {selectedTemplateId && (
+                  <button style={styles.secondaryBtn} onClick={async () => { await axios.delete(`${API}/api/ai/templates/${selectedTemplateId}`); setSelectedTemplateId(''); await loadTemplates(); }}>Delete template</button>
+                )}
+              </div>
+              <input style={styles.aiInput} value={styleNotes} onChange={(e) => setStyleNotes(e.target.value)} placeholder="Style notes (optional): voice guidance for generation, e.g. short sentences, no jargon" />
 
               <textarea
                 style={{ ...styles.textarea, minHeight: 120 }}
@@ -1984,6 +2045,11 @@ function ComposeView({
                 }}
                 placeholder="Generated text appears here..."
               />
+              {generateDuplicates.length > 0 && (
+                <div style={{ color: '#f59e0b', fontSize: 12, lineHeight: 1.6, marginTop: 8 }}>
+                  Near-duplicate warning: this generation closely matches {generateDuplicates.map((d) => `post ${d.post_index + 1} (${d.match === 'batch' ? 'same batch' : 'your recent posts'})`).join(', ')} — regenerate or edit before posting.
+                </div>
+              )}
               <div style={{ color: '#9ca3af', fontSize: 12, fontWeight: 700, marginTop: 12 }}>Image Prompt Components</div>
               <input
                 style={{ ...styles.input, marginTop: 8 }}

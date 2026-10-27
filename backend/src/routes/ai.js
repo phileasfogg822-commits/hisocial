@@ -124,6 +124,48 @@ router.delete('/assignments/:id', requireAuth, async (req, res) => {
   res.json({ deleted: true });
 });
 
+// Phase 16: generation templates (user-owned, unique by
+// name). Applying a template fills the Compose fields;
+// its style notes travel into the prompt.
+const { validateTemplateInput, findDuplicates } = require('../utils/contentTemplates');
+
+router.get('/templates', requireAuth, async (req, res) => {
+  const db = req.app.locals.db;
+  const result = await db.query(
+    `SELECT id, name, tone, language, format, style_notes, updated_at FROM ai_templates WHERE user_id=$1 ORDER BY name`,
+    [req.user.id]
+  );
+  res.json(result.rows);
+});
+
+router.post('/templates', requireAuth, async (req, res) => {
+  const db = req.app.locals.db;
+  const checked = validateTemplateInput(req.body || {});
+  if (!checked.ok) return res.status(400).json({ error: checked.error });
+  const t = checked.template;
+  try {
+    const result = await db.query(
+      `INSERT INTO ai_templates (user_id, name, tone, language, format, style_notes)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+      [req.user.id, t.name, t.tone, t.language, t.format, t.style_notes]
+    );
+    return res.status(201).json(result.rows[0]);
+  } catch (e) {
+    if (e.code === '23505') return res.status(409).json({ error: 'A template with that name already exists' });
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+router.delete('/templates/:id', requireAuth, async (req, res) => {
+  const db = req.app.locals.db;
+  const result = await db.query(
+    `DELETE FROM ai_templates WHERE id=$1 AND user_id=$2 RETURNING id`,
+    [req.params.id, req.user.id]
+  );
+  if (!result.rows[0]) return res.status(404).json({ error: 'Template not found' });
+  res.json({ deleted: true });
+});
+
 router.post('/test', requireAuth, async (req, res) => {
   const { provider = 'gemini', prompt = 'Reply with one short sentence confirming the Gemini API key is working.' } = req.body || {};
   const db = req.app.locals.db;
@@ -200,7 +242,8 @@ router.post('/generate', requireAuth, async (req, res) => {
     group_id = null,
     account_id = null,
     language = 'en',
-    format = 'post'
+    format = 'post',
+    style_notes = ''
   } = req.body;
 
   if (!topic?.trim()) {
@@ -211,6 +254,9 @@ router.post('/generate', requireAuth, async (req, res) => {
   const checkedOptions = validateGenerationOptions({ language, format });
   if (!checkedOptions.ok) {
     return res.status(400).json({ error: checkedOptions.error });
+  }
+  if (String(style_notes || '').length > 500) {
+    return res.status(400).json({ error: 'Style notes are too long (max 500 chars)' });
   }
 
   const available = getAvailableProviders().filter((provider) => provider.hasText !== false);
@@ -281,9 +327,25 @@ router.post('/generate', requireAuth, async (req, res) => {
         platforms,
         provider: provider.id,
         language,
-        format
+        format,
+        style_notes: style_notes || undefined
       });
-      return res.json({ posts, provider: provider.id, provider_name: provider.name, language, format });
+      // Phase 16: flag near-duplicates (batch + the user's
+      // recent posts). Flagging only — never blocking.
+      let duplicates = [];
+      try {
+        const history = await req.app.locals.db.query(
+          `SELECT content FROM posts WHERE user_id=$1 AND content IS NOT NULL AND content <> '' ORDER BY created_at DESC LIMIT 50`,
+          [req.user.id]
+        );
+        duplicates = findDuplicates({
+          candidates: posts.map((p) => p.body || ''),
+          existing: history.rows.map((r) => r.content),
+        });
+      } catch {
+        duplicates = [];
+      }
+      return res.json({ posts, provider: provider.id, provider_name: provider.name, language, format, duplicates });
     } catch (e) {
       const status = e.response?.status;
       const isQuotaError = status === 429 || status === 503 ||
@@ -907,7 +969,7 @@ router.post('/image-alibaba-debug', async (req, res) => {
   }
 });
 
-async function generatePosts({ topic, tone, emoji_level, max_length, count, niche, platforms, provider, language = 'en', format = 'post' }) {
+async function generatePosts({ topic, tone, emoji_level, max_length, count, niche, platforms, provider, language = 'en', format = 'post', style_notes = '' }) {
   const { validateGenerationOptions } = require('../utils/languagePacks');
   const checked = validateGenerationOptions({ language, format });
   const pack = checked.ok ? checked.pack : { languageInstruction: 'Write entirely in English.', hashtagNote: 'Hashtags in English, relevant to the topic.' };
@@ -938,12 +1000,13 @@ async function generatePosts({ topic, tone, emoji_level, max_length, count, nich
 
   const nicheNote = niche ? `Industry/Niche: ${niche}. ` : '';
   const languageNote = `${pack.languageInstruction} `;
+  const styleNote = style_notes ? `Style guidance: ${String(style_notes).trim()} ` : '';
 
   const systemPrompt = `You are an elite social media content strategist with 10+ years of experience creating viral content. You specialize in crafting posts that drive engagement, shares, and conversions across all major platforms.`;
 
   const userPrompt = `Create ${count} completely unique, highly engaging social media post${count > 1 ? 's' : ''} about: "${topic}"
 
-${nicheNote}${platformNote}${languageNote}Tone: ${toneGuide[tone] || toneGuide.professional}
+${nicheNote}${platformNote}${languageNote}${styleNote}Tone: ${toneGuide[tone] || toneGuide.professional}
 Emoji usage: ${emojiGuide[emoji_level] || emojiGuide.light}
 Character limit: Maximum ${max_length} characters per post.
 

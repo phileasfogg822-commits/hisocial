@@ -66,7 +66,9 @@ describe('group wiring (static parity)', () => {
     const oldSites = (combined.match(/ON CONFLICT \(user_id, platform\)/g) || []).length;
     const newSites = (combined.match(/ON CONFLICT \(user_id, platform, platform_user_id\)/g) || []).length;
     assert.equal(oldSites, 0);
-    assert.equal(newSites, 7);
+    // 7 Phase 4 sites + 1 YouTube site (Phase 8). Update
+    // this count when a new upsert is added on purpose.
+    assert.equal(newSites, 8);
   });
 
   it('groups routes are mounted and guarded by a selected profile', () => {

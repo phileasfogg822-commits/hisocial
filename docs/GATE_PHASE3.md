@@ -100,3 +100,15 @@ silently resolved.
 - CI verdict on the Phase 3 head is pending at the time of
   this gate-doc write; Phase 3 is accepted ONLY on a green
   run on the exact head, including the new tests.
+
+## CI GREEN on the Phase 3 head — Phase 3's proof
+
+- Run `40449555768` on head `a7533ec` completed with
+  conclusion `success`. Every step succeeded, including
+  `Test backend` (28 tests in CI, matching the local run)
+  and the Docker build — which is also the frontend
+  compile proof for the login-gate button change.
+- Phase 3 is therefore ACCEPTED on `a7533ec` for its scope.
+  The gate-doc update itself is the only change after this
+  head, and its CI run must also go green before the phase
+  is called fully closed.

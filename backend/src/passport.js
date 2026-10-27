@@ -94,13 +94,32 @@ module.exports = (passport, pool) => {
       passReqToCallback: true
     }, async (req, accessToken, refreshToken, profile, done) => {
       try {
+        // Phase 6: exchange the short-lived callback token for
+        // a long-lived one (~60 days) before storing it.
+        // Best-effort: if the exchange fails (network, app
+        // config), store the short-lived token as before
+        // rather than failing the whole connect.
+        let storedToken = accessToken;
+        let storedExpiry = null;
+        try {
+          const { exchangeForLongLivedToken } = require('./utils/metaTokens');
+          const exchanged = await exchangeForLongLivedToken({
+            token: accessToken,
+            appId: process.env.FACEBOOK_APP_ID,
+            appSecret: process.env.FACEBOOK_APP_SECRET,
+          });
+          storedToken = exchanged.accessToken;
+          storedExpiry = exchanged.expiresAt;
+        } catch (e) {
+          console.error('Facebook long-lived exchange failed, storing short-lived token:', e.message);
+        }
         const linkedUserId = getOauthLinkedUserId(req);
         if (linkedUserId) {
-          await linkAccount(pool, linkedUserId, 'facebook', profile, accessToken, refreshToken);
+          await linkAccount(pool, linkedUserId, 'facebook', profile, storedToken, refreshToken, storedExpiry);
           const userResult = await pool.query('SELECT * FROM users WHERE id = $1', [linkedUserId]);
           return done(null, userResult.rows[0] || null);
         }
-        const user = await findOrCreateUser(profile, 'facebook', accessToken, refreshToken, null);
+        const user = await findOrCreateUser(profile, 'facebook', storedToken, refreshToken, storedExpiry);
         done(null, user);
       } catch (err) { done(err); }
     }));
@@ -200,18 +219,18 @@ module.exports = (passport, pool) => {
   }
 };
 
-async function linkAccount(pool, userId, platform, profile, accessToken, refreshToken) {
+async function linkAccount(pool, userId, platform, profile, accessToken, refreshToken, tokenExpiry = null) {
   await pool.query(
-    `INSERT INTO social_accounts (user_id, platform, platform_user_id, platform_username, 
-     platform_display_name, platform_avatar_url, access_token, refresh_token)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+    `INSERT INTO social_accounts (user_id, platform, platform_user_id, platform_username,
+     platform_display_name, platform_avatar_url, access_token, refresh_token, token_expires_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
      ON CONFLICT (user_id, platform, platform_user_id) DO UPDATE SET
-     access_token=$7, refresh_token=$8, platform_username=$4, 
+     access_token=$7, refresh_token=$8, token_expires_at=$9, platform_username=$4,
      platform_display_name=$5, platform_avatar_url=$6, updated_at=NOW()`,
     [userId, platform, profile.id,
      profile.username || profile.displayName,
      profile.displayName,
      profile.photos?.[0]?.value,
-     accessToken, refreshToken]
+     accessToken, refreshToken, tokenExpiry]
   );
 }

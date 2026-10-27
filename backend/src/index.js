@@ -100,6 +100,7 @@ app.use('/auth', require('./routes/auth'));
 app.use('/api/accounts', require('./routes/accounts'));
 app.use('/api/groups', require('./routes/groups'));
 app.use('/api/onboarding', require('./routes/onboarding'));
+app.use('/api/meta', require('./routes/meta'));
 app.use('/api/user', require('./routes/user'));
 const postsRouter = require('./routes/posts');
 app.use('/api/posts', postsRouter);

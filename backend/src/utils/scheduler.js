@@ -45,6 +45,21 @@ function isStuckPost(post, nowMs) {
   return nowMs - new Date(post.updated_at).getTime() > STUCK_AFTER_MS;
 }
 
+// Phase 18: a supervised post is due for the inbox,
+// not for publishing — the scheduler moves it to
+// 'awaiting_approval' instead of claiming it.
+function isApprovalDue(post, nowMs) {
+  if (!post || !post.requires_approval) return false;
+  if (post.status !== 'scheduled') return false;
+  if (!post.scheduled_at) return false;
+  return new Date(post.scheduled_at).getTime() <= nowMs;
+}
+
+// Only an awaiting post can be approved or rejected.
+function canDecideApproval(post) {
+  return Boolean(post) && post.status === 'awaiting_approval';
+}
+
 // Outcome of a failed attempt: retry with a delay, or
 // terminal failure once attempts are spent.
 function nextAttemptAfterFailure(attempts) {
@@ -60,5 +75,7 @@ module.exports = {
   computeBackoffMs,
   isDue,
   isStuckPost,
+  isApprovalDue,
+  canDecideApproval,
   nextAttemptAfterFailure,
 };

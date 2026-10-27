@@ -85,3 +85,12 @@ Branch: `phase-20-video-pipeline`, cut from Phase
   time of this gate-doc write; Phase 20 is accepted
   ONLY on a green run on the exact head, including
   the new tests.
+
+## CI verdict (added after the run)
+
+- Run `40558135580` on head `9b1c9f5` (the code
+  head): **SUCCESS** — all steps green, including
+  Test backend and the frontend Docker build.
+  **Phase 20 ACCEPTED on `9b1c9f5`.** Draft PR #20
+  created and verified. The confirmatory run on
+  this gate head follows the Phase 1–19 pattern.

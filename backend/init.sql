@@ -66,6 +66,14 @@ CREATE TABLE IF NOT EXISTS custom_platforms (
 );
 CREATE INDEX IF NOT EXISTS idx_custom_platforms_user ON custom_platforms (user_id);
 
+CREATE TABLE IF NOT EXISTS ai_provider_tests (
+  provider_id TEXT PRIMARY KEY,
+  last_status VARCHAR(20) NOT NULL,
+  last_detail TEXT,
+  last_tested_at TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS social_accounts (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,

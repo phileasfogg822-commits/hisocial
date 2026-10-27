@@ -9,63 +9,118 @@ const requireAuth = (req, res, next) => {
   next();
 };
 
+// Phase 12: the provider list lives in the registry
+// (utils/aiProviders.js), not hardcoded here. This keeps
+// the backend list, the Settings list, and the generation
+// fallback chain on the same single source of truth.
+const { listProviders, availableTextProviders, getProviderSpec } = require('../utils/aiProviders');
+
+// Kept for the generation path: providers it may actually
+// call today (configured, live text APIs — Muse excluded
+// until the Phase 14 queue exists).
 function getAvailableProviders() {
-  const providers = [];
-  if (process.env.OPENAI_API_KEY && !process.env.OPENAI_API_KEY.startsWith('your_')) {
-    providers.push({ id: 'openai', name: 'OpenAI GPT-4o', hasText: true, hasImage: true });
-  }
-  if (process.env.GEMINI_API_KEY && !process.env.GEMINI_API_KEY.startsWith('your_')) {
-    providers.push({ id: 'gemini', name: 'Google Gemini Flash Latest', hasText: true, hasImage: false });
-  }
-  if (process.env.BIGMODEL_API_KEY && !process.env.BIGMODEL_API_KEY.startsWith('your_')) {
-    providers.push({ id: 'bigmodel', name: 'BigModel GLM / CogView', hasText: true, hasImage: true });
-  }
-  if (process.env.ALIBABA_DASHSCOPE_API_KEY && !process.env.ALIBABA_DASHSCOPE_API_KEY.startsWith('your_')) {
-    const region = String(process.env.ALIBABA_REGION || 'singapore').toLowerCase();
-    providers.push({ id: 'alibaba', name: `Alibaba Wan2.7 (${region})`, hasText: false, hasImage: true });
-  }
-  if (process.env.DEAPI_API_KEY && !process.env.DEAPI_API_KEY.startsWith('your_')) {
-    providers.push({ id: 'deapi', name: 'DEAPI Flux Image', hasText: false, hasImage: true });
-  }
-  if (process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_API_KEY.startsWith('your_')) {
-    providers.push({ id: 'anthropic', name: 'Anthropic Claude', hasText: true, hasImage: false });
-  }
-  if (process.env.GROK_API_KEY && !process.env.GROK_API_KEY.startsWith('your_')) {
-    providers.push({ id: 'grok', name: 'xAI Grok', hasText: true, hasImage: false });
-  }
-  return providers;
+  return availableTextProviders();
 }
 
-router.get('/providers', requireAuth, (req, res) => {
-  res.json(getAvailableProviders());
+// Best-effort merge of the last recorded test status
+// (ai_provider_tests). A missing table or DB never breaks
+// the provider list — status is just null.
+async function withTestStatus(db, providers) {
+  if (!db) return providers;
+  try {
+    const result = await db.query(`SELECT provider_id, last_status, last_detail, last_tested_at FROM ai_provider_tests`);
+    const byId = {};
+    for (const row of result.rows) byId[row.provider_id] = row;
+    return providers.map((p) => ({
+      ...p,
+      lastTestStatus: byId[p.id]?.last_status || null,
+      lastTestDetail: byId[p.id]?.last_detail || null,
+      lastTestedAt: byId[p.id]?.last_tested_at || null,
+    }));
+  } catch {
+    return providers;
+  }
+}
+
+async function recordTestStatus(db, providerId, status, detail) {
+  if (!db) return;
+  try {
+    await db.query(
+      `INSERT INTO ai_provider_tests (provider_id, last_status, last_detail, last_tested_at, updated_at)
+       VALUES ($1,$2,$3,NOW(),NOW())
+       ON CONFLICT (provider_id) DO UPDATE SET last_status=$2, last_detail=$3, last_tested_at=NOW(), updated_at=NOW()`,
+      [providerId, status, String(detail || '').substring(0, 500)]
+    );
+  } catch {
+    // Test recording must never fail the test itself.
+  }
+}
+
+router.get('/providers', requireAuth, async (req, res) => {
+  const providers = await withTestStatus(req.app.locals.db, listProviders());
+  res.json(providers);
 });
 
 router.post('/test', requireAuth, async (req, res) => {
   const { provider = 'gemini', prompt = 'Reply with one short sentence confirming the Gemini API key is working.' } = req.body || {};
-  const available = getAvailableProviders();
-  const selectedProvider = available.find((item) => item.id === provider);
+  const db = req.app.locals.db;
+  const registry = listProviders();
+  const selectedProvider = registry.find((item) => item.id === provider);
+  const spec = getProviderSpec(provider);
 
-  if (!selectedProvider) {
+  if (!selectedProvider || !spec) {
+    return res.status(400).json({ error: `Unknown AI provider: ${provider}` });
+  }
+
+  // Phase 12: Muse and image-only providers get honest
+  // non-live answers, recorded like any other test, so
+  // Settings shows their real state instead of a 400
+  // that looks like a broken test button.
+  if (spec.testKind === 'queue') {
+    const detail = spec.note;
+    await recordTestStatus(db, provider, 'unavailable', detail);
+    return res.json({
+      ok: false,
+      status: 'unavailable',
+      provider: selectedProvider.id,
+      provider_name: selectedProvider.name,
+      text: detail,
+    });
+  }
+
+  if (spec.testKind === 'image-manual') {
+    const detail = `${selectedProvider.name} is image-only and has no free probe endpoint — generate one image to verify it.`;
+    await recordTestStatus(db, provider, 'untestable', detail);
+    return res.json({
+      ok: false,
+      status: 'untestable',
+      provider: selectedProvider.id,
+      provider_name: selectedProvider.name,
+      text: detail,
+    });
+  }
+
+  if (!selectedProvider.configured) {
     return res.status(400).json({
       error: `${provider} is not configured. Add the API key in docker-compose.yml and recreate the backend.`
     });
   }
 
-  if (selectedProvider.hasText === false) {
-    return res.status(400).json({ error: `${selectedProvider.name} supports image generation only, not text testing.` });
-  }
-
   try {
     const text = await testProvider(provider, prompt);
+    await recordTestStatus(db, provider, 'ok', text);
     res.json({
       ok: true,
+      status: 'ok',
       provider: selectedProvider.id,
       provider_name: selectedProvider.name,
       text
     });
   } catch (e) {
+    const message = e.response?.data?.error?.message || e.message;
+    await recordTestStatus(db, provider, 'failed', message);
     console.error('AI test error:', e.response?.data || e.message);
-    res.status(500).json({ error: e.response?.data?.error?.message || e.message });
+    res.status(500).json({ error: message });
   }
 });
 
@@ -89,6 +144,16 @@ router.post('/generate', requireAuth, async (req, res) => {
   if (available.length === 0) {
     return res.status(400).json({
       error: 'No text AI provider configured. Add OPENAI_API_KEY, GEMINI_API_KEY, BIGMODEL_API_KEY, ANTHROPIC_API_KEY, or GROK_API_KEY in docker-compose.yml and recreate the backend.'
+    });
+  }
+
+  // Phase 12: Muse appears in provider lists as the
+  // preferred generator, but generation via the task
+  // queue lands in Phase 14. Refuse it plainly here
+  // instead of silently substituting another provider.
+  if (preferredProvider === 'muse') {
+    return res.status(400).json({
+      error: 'Muse generation arrives with the Phase 14 task queue. Pick another provider for now.'
     });
   }
 

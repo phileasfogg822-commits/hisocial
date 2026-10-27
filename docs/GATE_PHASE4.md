@@ -107,3 +107,11 @@ social accounts.
 - CI verdict on the Phase 4 head is pending at the time of
   this gate-doc write; Phase 4 is accepted ONLY on a green
   run on the exact head, including the new tests.
+
+## CI verdict (added after the run)
+
+- Run `40451841754` on head `953ee10` (the code head):
+  **SUCCESS** — all steps green, including Test backend
+  and the frontend Docker build. **Phase 4 ACCEPTED on
+  `953ee10`.** The confirmatory run on this gate head
+  follows the Phase 1–3 pattern.

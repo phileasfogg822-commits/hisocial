@@ -559,6 +559,8 @@ async function runMigrations() {
     )`);
   await pool.query(`INSERT INTO autopilot_control (id, killed) VALUES (1, false) ON CONFLICT (id) DO NOTHING`);
   await pool.query(`ALTER TABLE ai_autopilot_configs ADD COLUMN IF NOT EXISTS consecutive_failures INTEGER NOT NULL DEFAULT 0`);
+  // Phase 22: post language for English vs Urdu comparisons.
+  await pool.query(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS language VARCHAR(10)`);
   // Phase 21: daily analytics snapshots.
   await pool.query(`
     CREATE TABLE IF NOT EXISTS analytics_daily_snapshots (

@@ -179,6 +179,7 @@ CREATE TABLE IF NOT EXISTS posts (
   generation_batch_id VARCHAR(100),
   generation_index INTEGER,
   generation_total INTEGER,
+  language VARCHAR(10),
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );

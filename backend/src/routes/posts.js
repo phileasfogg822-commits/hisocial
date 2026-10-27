@@ -503,6 +503,23 @@ router.post('/', requireAuth, async (req, res) => {
     });
   }
 
+  // Phase 20: fail fast on video combinations no
+  // platform path can publish, before scheduling or
+  // publishing anything.
+  if (Array.isArray(media_urls) && media_urls.some((u) => {
+    try { return require('../utils/xrp').isVideoUrl(u); } catch { return false; }
+  })) {
+    const { validateVideoPost } = require('../utils/videoPipeline');
+    const checked = validateVideoPost({ platforms, mediaUrls: media_urls });
+    if (!checked.ready) {
+      return res.status(400).json({
+        error: 'Video post is not ready for every platform',
+        blocked: checked.blocked,
+        results: checked.results,
+      });
+    }
+  }
+
   // Phase 17: an optional group tag, owned by this user.
   let validatedGroupId = null;
   if (req.body.group_id) {
@@ -1919,6 +1936,19 @@ async function publishStoredPost(pool, post) {
     finalStatus,
   };
 }
+
+// ─── Video pipeline ─────────────────────────────────────────────────────────
+// Phase 20: readiness check on demand. No DB, no side
+// effects — it validates the given platforms + media
+// against what each platform path can actually take.
+router.post('/validate-video', requireAuth, async (req, res) => {
+  const { validateVideoPost } = require('../utils/videoPipeline');
+  const { platforms = [], media_urls = [] } = req.body || {};
+  if (!Array.isArray(platforms) || !Array.isArray(media_urls)) {
+    return res.status(400).json({ error: 'platforms and media_urls must be arrays' });
+  }
+  res.json(validateVideoPost({ platforms, mediaUrls: media_urls }));
+});
 
 // ─── Approval inbox ─────────────────────────────────────────────────────────
 // Phase 18: supervised publishing. A post created with

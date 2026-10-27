@@ -1022,6 +1022,8 @@ function ComposeView({
   const [composeImageGenerating, setComposeImageGenerating] = useState(false);
   // Phase 14: Muse bridge jobs for this compose session.
   const [museJobs, setMuseJobs] = useState([]);
+  // Phase 20: video readiness results.
+  const [videoReadiness, setVideoReadiness] = useState(null);
   const [museRequesting, setMuseRequesting] = useState(false);
   const [composeUploading, setComposeUploading] = useState(false);
 
@@ -2243,6 +2245,33 @@ function ComposeView({
                             <button style={styles.secondaryBtn} onClick={() => fallbackMuseJob(job)}>Fall back to API provider</button>
                           )}
                         </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div style={{ border: '1px solid #1f2937', borderRadius: 10, padding: 10, background: '#0b1220' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <span style={{ color: '#9ca3af', fontSize: 12, fontWeight: 700 }}>Video readiness</span>
+                  <button style={styles.secondaryBtn} onClick={async () => {
+                    try {
+                      const res = await axios.post(`${API}/api/posts/validate-video`, { platforms: selectedPlatforms, media_urls: composeMediaUrls });
+                      setVideoReadiness(res.data);
+                    } catch (e) {
+                      onError(e.response?.data?.error || 'Video readiness check failed');
+                    }
+                  }}>Check video readiness</button>
+                </div>
+                <p style={{ color: '#666', fontSize: 12, lineHeight: 1.6, margin: '6px 0 10px' }}>
+                  Checks the media list against what each selected platform's video path can take, before
+                  scheduling or publishing. No rendering or transcoding — this validates, it does not assemble.
+                </p>
+                {videoReadiness && (
+                  <div style={{ display: 'grid', gap: 4 }}>
+                    {videoReadiness.results.map((r) => (
+                      <div key={r.platform} style={{ color: r.status === 'blocked' ? '#ef4444' : r.status === 'ready' ? '#4ade80' : '#888', fontSize: 12 }}>
+                        {r.platform}: {r.status}{r.reason ? ` — ${r.reason}` : ''}
                       </div>
                     ))}
                   </div>

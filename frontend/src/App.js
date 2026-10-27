@@ -287,11 +287,11 @@ export default function App() {
     }
   }, []);
 
-  const loadCalendarPosts = useCallback(async (year, month) => {
+  const loadCalendarPosts = useCallback(async (year, month, groupId) => {
     const y = year || new Date().getFullYear();
     const m = month || (new Date().getMonth() + 1);
     try {
-      const res = await axios.get(`${API}/api/posts/calendar`, { params: { year: y, month: m } });
+      const res = await axios.get(`${API}/api/posts/calendar`, { params: { year: y, month: m, group_id: groupId || undefined } });
       setCalendarPosts(res.data || []);
     } catch {
       setCalendarPosts([]);
@@ -2670,6 +2670,10 @@ function CalendarView({ posts, onLoadMonth, platforms = [], connectedPlatforms =
   const [expandedReportPostId, setExpandedReportPostId] = useState('');
   const [savedTemplates, setSavedTemplates] = useState([]);
   const [draftUploading, setDraftUploading] = useState(false);
+  // Phase 17: per-group calendar filter + draft group tag.
+  const [calendarGroups, setCalendarGroups] = useState([]);
+  const [calendarGroupId, setCalendarGroupId] = useState('');
+  const [draftGroupId, setDraftGroupId] = useState('');
   const editFileInputRef = useRef(null);
   const draftFileInputRef = useRef(null);
 
@@ -2722,7 +2726,11 @@ function CalendarView({ posts, onLoadMonth, platforms = [], connectedPlatforms =
     setSelectedDay(null);
   };
 
-  useEffect(() => { onLoadMonth(year, month); }, [year, month, onLoadMonth]);
+  useEffect(() => {
+    axios.get(`${API}/api/groups`).then((res) => setCalendarGroups(res.data || [])).catch(() => {});
+  }, []);
+
+  useEffect(() => { onLoadMonth(year, month, calendarGroupId || undefined); }, [year, month, calendarGroupId, onLoadMonth]);
 
   useEffect(() => {
     const loadTemplates = async () => {
@@ -2932,6 +2940,7 @@ function CalendarView({ posts, onLoadMonth, platforms = [], connectedPlatforms =
         facebook_page_ids: draftPlatforms.includes('facebook') ? draftFacebookPages : [],
         linkedin_target_ids: draftPlatforms.includes('linkedin') ? draftLinkedInTargets : [],
         generation_source: 'calendar',
+        group_id: draftGroupId || undefined,
         generation_batch_id: `calendar-${Date.now()}`,
         generation_index: 1,
         generation_total: 1,
@@ -2939,9 +2948,10 @@ function CalendarView({ posts, onLoadMonth, platforms = [], connectedPlatforms =
 
       if (response.data?.scheduled) {
         onScheduled?.();
-        await onLoadMonth(year, month);
+        await onLoadMonth(year, month, calendarGroupId || undefined);
         setDraftContent('');
         setDraftMediaUrls('');
+        setDraftGroupId('');
       } else {
         onError?.('Post was created but not scheduled. Please retry.');
       }
@@ -2996,7 +3006,7 @@ function CalendarView({ posts, onLoadMonth, platforms = [], connectedPlatforms =
         facebook_page_ids: editPlatforms.includes('facebook') ? editFacebookPages : [],
         linkedin_target_ids: editPlatforms.includes('linkedin') ? editLinkedInTargets : [],
       });
-      await onLoadMonth(year, month);
+      await onLoadMonth(year, month, calendarGroupId || undefined);
       onNotify?.('Scheduled post updated');
       cancelEditPost();
     } catch (e) {
@@ -3010,7 +3020,7 @@ function CalendarView({ posts, onLoadMonth, platforms = [], connectedPlatforms =
 
     try {
       await axios.delete(`${API}/api/posts/${postId}`);
-      await onLoadMonth(year, month);
+      await onLoadMonth(year, month, calendarGroupId || undefined);
       onNotify?.('Scheduled post deleted');
       if (editingPostId === postId) cancelEditPost();
     } catch (e) {
@@ -3021,7 +3031,7 @@ function CalendarView({ posts, onLoadMonth, platforms = [], connectedPlatforms =
   const postNowScheduled = async (postId) => {
     try {
       await axios.post(`${API}/api/posts/${postId}/post-now`);
-      await onLoadMonth(year, month);
+      await onLoadMonth(year, month, calendarGroupId || undefined);
       onScheduled?.();
       onNotify?.('Scheduled post published now');
     } catch (e) {
@@ -3041,6 +3051,10 @@ function CalendarView({ posts, onLoadMonth, platforms = [], connectedPlatforms =
       <div style={styles.calendarHeaderRow}>
         <h2 style={{ ...styles.sectionTitle, margin: 0 }}>Content Calendar</h2>
         <div style={{ display: 'flex', gap: 8, marginLeft: 'auto', alignItems: 'center' }}>
+          <select style={styles.aiSelect} value={calendarGroupId} onChange={(e) => setCalendarGroupId(e.target.value)}>
+            <option value="">All groups</option>
+            {calendarGroups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+          </select>
           <button style={styles.calNavBtn} onClick={prevMonth}>‹</button>
           <span style={{ color: '#fff', fontWeight: 700, minWidth: 140, textAlign: 'center' }}>{monthName} {year}</span>
           <button style={styles.calNavBtn} onClick={nextMonth}>›</button>
@@ -3167,6 +3181,13 @@ function CalendarView({ posts, onLoadMonth, platforms = [], connectedPlatforms =
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1, minWidth: 220 }}>
                 <label style={styles.aiLabel}>Platforms</label>
                 <PlatformPicker platformIds={schedulablePlatforms} selectedPlatforms={draftPlatforms} onToggle={toggleDraftPlatform} />
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1, minWidth: 220 }}>
+                <label style={styles.aiLabel}>Group (optional)</label>
+                <select style={styles.aiSelect} value={draftGroupId} onChange={(e) => setDraftGroupId(e.target.value)}>
+                  <option value="">No group</option>
+                  {calendarGroups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+                </select>
               </div>
               <FacebookPagesPicker
                 visible={draftPlatforms.includes('facebook')}

@@ -97,7 +97,7 @@ router.get('/linkedin/targets', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'LinkedIn is not connected for this account' });
     }
 
-    const { orgTargetsFromPageAccounts } = require('./utils/linkedin');
+    const { orgTargetsFromPageAccounts } = require('../utils/linkedin');
     const targets = await listLinkedInTargets(
       liRow?.access_token || null,
       pageRow?.access_token || null,
@@ -208,7 +208,7 @@ router.put('/:postId', requireAuth, async (req, res) => {
       }
 
       // Phase 10: keep the new targeting fields on edit.
-      const { validateSubreddit } = require('./utils/xrp');
+      const { validateSubreddit } = require('../utils/xrp');
       let nextRedditSubreddit = existing.reddit_subreddit || null;
       if (nextPlatforms.includes('reddit')) {
         if (typeof reddit_subreddit === 'string') {
@@ -258,7 +258,7 @@ router.put('/:postId', requireAuth, async (req, res) => {
       }
 
       // Phase 10: keep the new targeting fields on edit.
-      const { validateSubreddit } = require('./utils/xrp');
+      const { validateSubreddit } = require('../utils/xrp');
       let nextRedditSubreddit = existing.reddit_subreddit || null;
       if (nextPlatforms.includes('reddit')) {
         if (typeof reddit_subreddit === 'string') {
@@ -410,7 +410,7 @@ router.post('/', requireAuth, async (req, res) => {
   // Phase 10: Reddit needs a real subreddit per post;
   // validate here so a bad value is a 400, not a post
   // that later fails (or, as before, lands in r/test).
-  const { validateSubreddit } = require('./utils/xrp');
+  const { validateSubreddit } = require('../utils/xrp');
   let normalizedRedditSubreddit = null;
   if (platforms.includes('reddit')) {
     const checked = validateSubreddit(reddit_subreddit);
@@ -698,7 +698,7 @@ async function refreshYouTubeTokenIfNeeded(db, userId, tokenRow) {
   const expiresAt = tokenRow.token_expires_at ? new Date(tokenRow.token_expires_at).getTime() : NaN;
   if (!Number.isNaN(expiresAt) && expiresAt > Date.now() + 5 * 60 * 1000) return tokenRow;
   try {
-    const { refreshAccessToken } = require('./utils/youtube');
+    const { refreshAccessToken } = require('../utils/youtube');
     const refreshed = await refreshAccessToken({
       refreshToken: tokenRow.refresh_token,
       clientId: process.env.GOOGLE_CLIENT_ID,
@@ -721,7 +721,7 @@ async function refreshYouTubeTokenIfNeeded(db, userId, tokenRow) {
 // uploaded via the resumable protocol. Privacy defaults
 // to private (see utils/youtube.js).
 async function postToYouTube(accessToken, content, mediaUrls) {
-  const { pickVideoUrl, buildVideoMetadata, contentTypeForUrl, uploadVideo } = require('./utils/youtube');
+  const { pickVideoUrl, buildVideoMetadata, contentTypeForUrl, uploadVideo } = require('../utils/youtube');
   const videoUrl = pickVideoUrl(mediaUrls);
   if (!videoUrl) {
     throw new Error('YouTube needs a video — attach a video file URL to the post.');
@@ -748,7 +748,7 @@ async function refreshTikTokTokenIfNeeded(db, userId, tokenRow) {
   const expiresAt = tokenRow.token_expires_at ? new Date(tokenRow.token_expires_at).getTime() : NaN;
   if (!Number.isNaN(expiresAt) && expiresAt > Date.now() + 5 * 60 * 1000) return tokenRow;
   try {
-    const { refreshAccessToken } = require('./utils/tiktok');
+    const { refreshAccessToken } = require('../utils/tiktok');
     const refreshed = await refreshAccessToken({
       refreshToken: tokenRow.refresh_token,
       clientKey: process.env.TIKTOK_CLIENT_KEY,
@@ -781,8 +781,8 @@ async function refreshTikTokTokenIfNeeded(db, userId, tokenRow) {
 // so a later retry does not silently duplicate, and the
 // record says exactly what happened.
 async function postToTikTok(accessToken, content, mediaUrls) {
-  const { pickVideoUrl } = require('./utils/youtube');
-  const { buildPostInfo, initVideoPost, fetchPublishStatus, chunkPlan } = require('./utils/tiktok');
+  const { pickVideoUrl } = require('../utils/youtube');
+  const { buildPostInfo, initVideoPost, fetchPublishStatus, chunkPlan } = require('../utils/tiktok');
   const videoUrl = pickVideoUrl(mediaUrls);
   if (!videoUrl) {
     throw new Error('TikTok needs a video — attach a video file URL to the post.');
@@ -938,7 +938,7 @@ async function listLinkedInTargets(accessToken, orgAccessToken = null, grantedSc
   // administer. Invalid stored ids (e.g. the old 'pages'
   // rows) are skipped by the helper.
   if (orgAccessToken && orgIds.length > 0) {
-    const { normalizeOrgId } = require('./utils/linkedin');
+    const { normalizeOrgId } = require('../utils/linkedin');
     const validIds = [...new Set(orgIds.map((id) => normalizeOrgId(id)).filter(Boolean))];
     for (const companyId of validIds) {
       let orgName = `Organization ${companyId}`;
@@ -1130,7 +1130,7 @@ async function postToTwitter(accessToken, accessSecret, content, mediaUrls) {
   // a single video) and attached to the tweet; text over
   // 280 chars fails visibly instead of failing at the API
   // with a cryptic error.
-  const { validateTweet, isVideoUrl, mimeTypeForUrl } = require('./utils/xrp');
+  const { validateTweet, isVideoUrl, mimeTypeForUrl } = require('../utils/xrp');
   const checked = validateTweet(content);
   if (!checked.ok) throw new Error(checked.error);
   const { TwitterApi } = require('twitter-api-v2').default || require('twitter-api-v2');
@@ -1373,7 +1373,7 @@ async function publishToLinkedInTarget(accessToken, target, content, mediaUrls =
 }
 
 async function postToLinkedIn(accessToken, platformUserId, content, mediaUrls, selectedTargetIds, grantedScope = '', orgAccessToken = null, pageAccounts = []) {
-  const { orgTargetsFromPageAccounts } = require('./utils/linkedin');
+  const { orgTargetsFromPageAccounts } = require('../utils/linkedin');
   const orgIds = orgTargetsFromPageAccounts(pageAccounts).map((t) => t.replace('organization:', ''));
   const targets = await listLinkedInTargets(accessToken, orgAccessToken, grantedScope, orgIds);
 
@@ -1454,7 +1454,7 @@ async function postToReddit(accessToken, content, subreddit) {
   // in Compose) and validated here; without a valid one
   // the attempt fails visibly instead of posting to a
   // subreddit nobody chose.
-  const { validateSubreddit, buildRedditSubmit } = require('./utils/xrp');
+  const { validateSubreddit, buildRedditSubmit } = require('../utils/xrp');
   const checked = validateSubreddit(subreddit);
   if (!checked.ok) throw new Error(checked.error);
   const res = await axios.post('https://oauth.reddit.com/api/submit', new URLSearchParams(
@@ -1691,7 +1691,7 @@ async function refreshRedditTokenIfNeeded(db, userId, tokenRow) {
   const expiresAt = tokenRow.token_expires_at ? new Date(tokenRow.token_expires_at).getTime() : NaN;
   if (!Number.isNaN(expiresAt) && expiresAt > Date.now() + 5 * 60 * 1000) return tokenRow;
   try {
-    const { refreshRedditToken } = require('./utils/xrp');
+    const { refreshRedditToken } = require('../utils/xrp');
     const refreshed = await refreshRedditToken({
       refreshToken: tokenRow.refresh_token,
       clientId: process.env.REDDIT_CLIENT_ID,
@@ -1717,7 +1717,7 @@ async function postToPinterest(accessToken, content, mediaUrls, boardId) {
   // visibly: video pins need a different media_source
   // flow, and sending one as image_url would fail
   // confusingly at the API.
-  const { pinterestDescription, isVideoUrl } = require('./utils/xrp');
+  const { pinterestDescription, isVideoUrl } = require('../utils/xrp');
   if (!boardId) {
     const boardsRes = await axios.get('https://api.pinterest.com/v5/boards',
       { headers: { Authorization: `Bearer ${accessToken}` } }

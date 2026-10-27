@@ -88,6 +88,30 @@ closed head `1fb0669`. PR base: `phase-9-tiktok`.
 - Frontend compile is NOT proven locally; it is
   proven by the CI Docker build, as in Phases 1–9.
 
+## Fixes found by CI on the first heads (added after the runs)
+
+- **First head `79772b4`: CI failed in "Wait for
+  services to be ready".** The new `routes/
+  pinterest.js` required `../middleware/auth`, a
+  module that does not exist — this codebase defines
+  `requireProfile` locally in each route. The backend
+  crashed at startup and never became healthy. Fixed
+  on `9ebdae2` (local guard like meta.js) plus a
+  regression test asserting every relative require in
+  backend routes resolves to a real file.
+- **That regression test then exposed a latent
+  defect from Phases 7–9:** `routes/posts.js`
+  required `./utils/...` from inside `src/routes/`,
+  which resolves to a nonexistent `routes/utils/`
+  directory. The requires are lazy (inside posting
+  functions), so CI — which never posts live — never
+  executed them, and every real LinkedIn/YouTube/
+  TikTok/XRP posting attempt would have crashed with
+  MODULE_NOT_FOUND. All 15 sites in `posts.js` were
+  corrected to `../utils/` on the fix head.
+  (`passport.js` sits at `src/`, so its `./utils/`
+  paths were already correct.)
+
 ## NOT proven yet — honest limits
 
 - Live X media upload, Reddit subreddit posting,

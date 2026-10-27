@@ -2055,6 +2055,12 @@ async function recoverStuckPosts(pool) {
 
 async function runScheduledPosts(pool) {
   try {
+    // Phase 21: build yesterday's snapshots when missing.
+    // Never throws into scheduling (builder catches).
+    try {
+      const { ensureYesterdaySnapshots } = require('../services/snapshotBuilder');
+      await ensureYesterdaySnapshots(pool);
+    } catch { /* snapshot failure must not break scheduling */ }
     await recoverStuckPosts(pool);
     // Phase 18: supervised posts whose time has come move
     // to the approval inbox; they are never auto-published.

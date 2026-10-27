@@ -559,6 +559,20 @@ async function runMigrations() {
     )`);
   await pool.query(`INSERT INTO autopilot_control (id, killed) VALUES (1, false) ON CONFLICT (id) DO NOTHING`);
   await pool.query(`ALTER TABLE ai_autopilot_configs ADD COLUMN IF NOT EXISTS consecutive_failures INTEGER NOT NULL DEFAULT 0`);
+  // Phase 21: daily analytics snapshots.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS analytics_daily_snapshots (
+      id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      snapshot_date DATE NOT NULL,
+      platform VARCHAR(50) NOT NULL,
+      published_count INTEGER NOT NULL DEFAULT 0,
+      failed_count INTEGER NOT NULL DEFAULT 0,
+      posts_created INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE (user_id, snapshot_date, platform)
+    )`);
   await pool.query(`ALTER TABLE ai_autopilot_configs ADD COLUMN IF NOT EXISTS disabled_reason TEXT`);
 
   await pool.query(`

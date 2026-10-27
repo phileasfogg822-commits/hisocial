@@ -238,4 +238,46 @@ router.get('/engagement', requireAuth, async (req, res) => {
   }
 });
 
+// Phase 21: daily snapshots. Built from the app's own
+// tables (no platform calls). Build is idempotent;
+// yesterday's build is also triggered automatically by
+// the scheduler tick (see posts.js).
+router.get('/snapshots', requireAuth, async (req, res) => {
+  const db = req.app.locals.db;
+  const days = Math.min(Math.max(parseInt(req.query.days, 10) || 30, 1), 365);
+  const params = [req.user.id, days];
+  let platformFilter = '';
+  if (req.query.platform) {
+    params.push(req.query.platform);
+    platformFilter = ` AND platform = $${params.length}`;
+  }
+  try {
+    const result = await db.query(
+      `SELECT snapshot_date, platform, published_count, failed_count, posts_created
+       FROM analytics_daily_snapshots
+       WHERE user_id=$1 AND snapshot_date >= CURRENT_DATE - ($2::text || ' days')::interval${platformFilter}
+       ORDER BY snapshot_date DESC, platform ASC`,
+      params
+    );
+    res.json(result.rows);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.post('/snapshots/build', requireAuth, async (req, res) => {
+  const db = req.app.locals.db;
+  const { buildSnapshotsForUser, yesterdayStr } = require('../services/snapshotBuilder');
+  const dateStr = req.body?.date || yesterdayStr();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    return res.status(400).json({ error: 'date must be YYYY-MM-DD' });
+  }
+  try {
+    const rows = await buildSnapshotsForUser(db, req.user.id, dateStr);
+    res.json({ date: dateStr, rows });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 module.exports = router;

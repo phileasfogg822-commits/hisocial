@@ -48,6 +48,24 @@ CREATE TABLE IF NOT EXISTS account_groups (
 );
 CREATE INDEX IF NOT EXISTS idx_account_groups_user ON account_groups (user_id);
 
+CREATE TABLE IF NOT EXISTS custom_platforms (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  slug TEXT NOT NULL,
+  tier VARCHAR(20) NOT NULL,
+  base_url TEXT NOT NULL,
+  post_path TEXT,
+  api_key TEXT,
+  auth_type VARCHAR(30) DEFAULT 'bearer',
+  auth_header TEXT,
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE (user_id, slug)
+);
+CREATE INDEX IF NOT EXISTS idx_custom_platforms_user ON custom_platforms (user_id);
+
 CREATE TABLE IF NOT EXISTS social_accounts (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,

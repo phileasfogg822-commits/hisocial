@@ -575,6 +575,17 @@ router.post('/', requireAuth, async (req, res) => {
       tokens['reddit'] = await refreshRedditTokenIfNeeded(db, req.user.id, tokens['reddit']);
     }
 
+    // Phase 11: custom-platform definitions for this user.
+    const { customPlatformId } = require('../utils/customPlatforms');
+    const customPlatforms = {};
+    if (platforms.some((p) => p.startsWith('custom_'))) {
+      const customResult = await db.query(
+        `SELECT * FROM custom_platforms WHERE user_id=$1 AND is_active=true`,
+        [req.user.id]
+      );
+      for (const row of customResult.rows) customPlatforms[customPlatformId(row.slug)] = row;
+    }
+
     // Create post record
     const postResult = await db.query(
       `INSERT INTO posts 
@@ -609,7 +620,8 @@ router.post('/', requireAuth, async (req, res) => {
         linkedInPageToken: tokens['linkedin_page']?.access_token || null,
         linkedInPageAccounts,
         redditSubreddit: normalizedRedditSubreddit,
-        pinterestBoardId: normalizedPinterestBoardId
+        pinterestBoardId: normalizedPinterestBoardId,
+        customPlatforms
       }))
     );
 
@@ -824,6 +836,14 @@ async function postToTikTok(accessToken, content, mediaUrls) {
 }
 
 async function postToPlatform(platform, tokenData, content, mediaUrls, options = {}) {
+  // Phase 11: custom platforms carry no social_accounts
+  // row, so they bypass the token check and resolve from
+  // the custom-platform map built by the caller.
+  if (require('../utils/customPlatforms').isCustomPlatformId(platform)) {
+    const def = (options.customPlatforms || {})[platform];
+    if (!def) throw new Error(`Custom platform ${platform} was deleted or is not available for this user`);
+    return await postToCustom(def, content, mediaUrls);
+  }
   if (!tokenData) throw new Error(`Not connected to ${platform}`);
   
   const { access_token, refresh_token, platform_user_id, scope } = tokenData;
@@ -1680,6 +1700,39 @@ async function waitForInstagramMediaReady(accessToken, creationId) {
   }
 }
 
+// Phase 11: publish to a user-defined generic platform.
+// Full tier POSTs JSON {content, media_urls} to the
+// platform's post endpoint. Readonly refuses without
+// calling anything. Manual never calls the platform:
+// it records a manual instruction as the attempt's
+// error message, so the post visibly says "publish this
+// yourself" instead of pretending it went out.
+async function postToCustom(def, content, mediaUrls) {
+  const { buildPostRequest } = require('../utils/customPlatforms');
+  if (def.tier === 'manual') {
+    return {
+      status: 'failed',
+      error_message: `Manual platform: publish this post yourself at ${def.base_url} — copy the text from this post.`,
+      target_name: def.name,
+    };
+  }
+  if (def.tier === 'readonly') {
+    throw new Error(`${def.name} is connected read-only — posting is not available for this platform.`);
+  }
+  if (!def.post_path) throw new Error(`${def.name} has no post endpoint configured.`);
+  if (!def.api_key) throw new Error(`${def.name} has no API key configured.`);
+  const axios = require('axios');
+  const req = buildPostRequest(def, content, mediaUrls);
+  const res = await axios.post(req.url, req.body, { headers: req.headers });
+  const data = res.data || {};
+  return {
+    status: 'success',
+    id: data.id || null,
+    url: data.url || null,
+    target_name: def.name,
+  };
+}
+
 // Phase 10: refresh a Reddit access token when it is
 // expired or has no recorded expiry. Pre-Phase-10 rows
 // never stored an expiry, so missing expiry refreshes
@@ -1784,6 +1837,17 @@ async function publishStoredPost(pool, post) {
     tokens['reddit'] = await refreshRedditTokenIfNeeded(pool, post.user_id, tokens['reddit']);
   }
 
+  // Phase 11: custom-platform definitions for this user.
+  const { customPlatformId } = require('../utils/customPlatforms');
+  const customPlatforms = {};
+  if (post.platforms.some((p) => p.startsWith('custom_'))) {
+    const customResult = await pool.query(
+      `SELECT * FROM custom_platforms WHERE user_id=$1 AND is_active=true`,
+      [post.user_id]
+    );
+    for (const row of customResult.rows) customPlatforms[customPlatformId(row.slug)] = row;
+  }
+
   const results = await Promise.allSettled(
     post.platforms.map((platform) => postToPlatform(platform, tokens[platform], post.content, post.media_urls || [], {
       facebookPageIds: post.facebook_page_ids || [],
@@ -1791,7 +1855,8 @@ async function publishStoredPost(pool, post) {
       linkedInPageToken: tokens['linkedin_page']?.access_token || null,
       linkedInPageAccounts,
       redditSubreddit: post.reddit_subreddit,
-      pinterestBoardId: post.pinterest_board_id
+      pinterestBoardId: post.pinterest_board_id,
+      customPlatforms
     }))
   );
 

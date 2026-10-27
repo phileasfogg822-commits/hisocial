@@ -94,3 +94,16 @@ head `8110e12`. PR base: `phase-7-linkedin-fix`.
 - CI verdict on the Phase 8 head is pending at the time
   of this gate-doc write; Phase 8 is accepted ONLY on a
   green run on the exact head, including the new tests.
+
+## CI verdict (added after the run)
+
+- Run `40458216615` on head `f7abf8b` (the code head):
+  **SUCCESS** — all steps green, including Test backend
+  and the frontend Docker build. **Phase 8 ACCEPTED on
+  `f7abf8b`.** Draft PR #8 created and verified after
+  two restart-killed attempts (the original watch
+  session died, and the first PR retry died in a
+  restart; the verdict was re-read directly from the
+  API and the PR list re-checked before each retry, so
+  no duplicate exists). The confirmatory run on this
+  gate head follows the Phase 1–7 pattern.

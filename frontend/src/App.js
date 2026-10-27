@@ -5487,6 +5487,22 @@ function AutoPilotView({
 
 function AnalyticsView({ data, onRefresh, onError }) {
   const [loading, setLoading] = useState(false);
+  // Phase 21: daily snapshots.
+  const [snapshots, setSnapshots] = useState([]);
+  const [snapshotsLoading, setSnapshotsLoading] = useState(false);
+
+  const loadSnapshots = useCallback(async () => {
+    setSnapshotsLoading(true);
+    try {
+      const res = await axios.get(`${API}/api/analytics/snapshots`, { params: { days: 30 } });
+      setSnapshots(res.data || []);
+    } catch {
+      setSnapshots([]);
+    }
+    setSnapshotsLoading(false);
+  }, []);
+
+  useEffect(() => { loadSnapshots(); }, [loadSnapshots]);
 
   const refresh = async () => {
     setLoading(true);
@@ -5532,6 +5548,36 @@ function AnalyticsView({ data, onRefresh, onError }) {
               <span style={{ color: '#ddd', fontSize: 12 }}>Reactions: {row.reactions || 0}</span>
               <span style={{ color: '#ddd', fontSize: 12 }}>Comments: {row.comments || 0}</span>
               <span style={{ color: '#ddd', fontSize: 12 }}>Likes: {row.likes || 0}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={styles.settingsCard}>
+        <h3 style={styles.settingsSubtitle}>Daily Snapshots (last 30 days)</h3>
+        <p style={{ color: '#64748b', fontSize: 12, lineHeight: 1.6, margin: '0 0 10px' }}>
+          Stored daily rollups from the app's own tables — published, failed, and created counts per
+          platform. Yesterday's snapshot builds automatically on the scheduler tick; use the button
+          to rebuild it on demand.
+        </p>
+        <button style={styles.secondaryBtn} disabled={snapshotsLoading} onClick={async () => {
+          try {
+            await axios.post(`${API}/api/analytics/snapshots/build`, {});
+            await loadSnapshots();
+          } catch (e) {
+            onError?.(e.response?.data?.error || 'Failed to build snapshot');
+          }
+        }}>{snapshotsLoading ? 'Loading...' : 'Build yesterday snapshot'}</button>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12 }}>
+          {snapshots.length === 0 ? (
+            <div style={{ color: '#64748b', fontSize: 13 }}>No snapshots yet.</div>
+          ) : snapshots.map((row, i) => (
+            <div key={`${row.snapshot_date}-${row.platform}-${i}`} style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr repeat(3, 1fr)', gap: 8, padding: '8px 10px', border: '1px solid #1f2937', borderRadius: 8 }}>
+              <span style={{ color: '#ddd', fontSize: 12 }}>{new Date(row.snapshot_date).toLocaleDateString()}</span>
+              <span style={{ color: PLATFORM_META[row.platform]?.color || '#ddd', fontSize: 12, fontWeight: 700 }}>{PLATFORM_META[row.platform]?.name || row.platform}</span>
+              <span style={{ color: '#ddd', fontSize: 12 }}>Published: {row.published_count || 0}</span>
+              <span style={{ color: '#ddd', fontSize: 12 }}>Failed: {row.failed_count || 0}</span>
+              <span style={{ color: '#ddd', fontSize: 12 }}>Created: {row.posts_created || 0}</span>
             </div>
           ))}
         </div>

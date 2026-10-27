@@ -628,6 +628,8 @@ export default function App() {
           <AnalyticsView data={analyticsData} onRefresh={() => loadAnalytics(7)} onError={(msg) => notify(msg, 'error')} />
         ) : view === 'groups' ? (
           <GroupsView onNotify={(msg) => notify(msg)} onError={(msg) => notify(msg, 'error')} />
+        ) : view === 'onboarding' ? (
+          <OnboardingWizard onConnect={connectPlatform} onError={(msg) => notify(msg, 'error')} />
         ) : (
           <SettingsView
             platforms={platforms}
@@ -3880,6 +3882,7 @@ function Sidebar({ user, accounts, view, setView, onSwitchAccount, onLogout, con
               { id: 'calendar', label: 'Calendar', icon: '📅' },
               { id: 'analytics', label: 'Analytics', icon: '📊' },
             { id: 'groups', label: 'Groups', icon: '👥' },
+            { id: 'onboarding', label: 'Setup Wizard', icon: '🧭' },
               { id: 'overlay', label: 'Overlay', icon: '🖼️' },
               { id: 'library', label: 'Library', icon: '📚' },
               { id: 'settings', label: 'Settings', icon: '⚙️' },
@@ -5167,6 +5170,111 @@ function GroupsView({ onNotify, onError }) {
               </li>
             ))}
           </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Phase 5: developer onboarding wizard. Walks the user
+// through connecting each platform by hand: create a
+// developer app, paste the exact redirect URI, set the env
+// vars, restart the backend, then Connect. It never writes
+// .env and never creates a developer app — those stay owner
+// actions. Env-var values are never shown, only present /
+// missing, because the API only reports presence.
+function OnboardingWizard({ onConnect, onError }) {
+  const [entries, setEntries] = useState([]);
+  const [selectedId, setSelectedId] = useState(null);
+  const [copied, setCopied] = useState(false);
+
+  const loadOnboarding = useCallback(async () => {
+    try {
+      const res = await axios.get(`${API}/api/onboarding`);
+      setEntries(res.data || []);
+      setSelectedId((prev) => prev || (res.data && res.data.length > 0 ? res.data[0].id : null));
+    } catch (e) {
+      onError?.(e.response?.data?.error || 'Failed to load setup wizard');
+    }
+  }, [onError]);
+
+  useEffect(() => { loadOnboarding(); }, [loadOnboarding]);
+
+  const selected = entries.find((e) => e.id === selectedId) || null;
+
+  const copyRedirectUri = async () => {
+    if (!selected) return;
+    try {
+      await navigator.clipboard.writeText(selected.redirectUri);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (e) {
+      onError?.('Could not copy — select the URL and copy it by hand');
+    }
+  };
+
+  return (
+    <div style={{ display: 'grid', gap: 16 }}>
+      <div style={styles.settingsCard}>
+        <h2 style={{ ...styles.sectionTitle, marginTop: 0 }}>Setup Wizard</h2>
+        <p style={{ color: '#94a3b8', fontSize: 13, lineHeight: 1.5 }}>
+          Each platform needs its own developer app — a Google credential cannot log into social platforms,
+          and official posting cannot skip this step. Pick a platform, follow its steps, then connect.
+          On the final VPS the redirect URIs must match the VPS domain, so you will re-do this step there.
+        </p>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 12 }}>
+          {entries.map((entry) => (
+            <button
+              key={entry.id}
+              style={selectedId === entry.id ? styles.primaryBtn : styles.secondaryBtn}
+              onClick={() => setSelectedId(entry.id)}
+            >
+              {entry.name} {entry.configured ? '✓' : '○'}
+            </button>
+          ))}
+        </div>
+      </div>
+      {selected && (
+        <div style={styles.settingsCard}>
+          <h3 style={{ ...styles.sectionTitle, marginTop: 0 }}>{selected.name}</h3>
+          <ol style={{ color: '#cbd5e1', fontSize: 13, lineHeight: 1.8, paddingLeft: 20 }}>
+            <li>
+              Create an app at <a href={selected.portalUrl} target="_blank" rel="noreferrer" style={{ color: '#93c5fd' }}>{selected.portalName}</a>.
+              {' '}{selected.productNote}
+            </li>
+            <li>
+              Paste this redirect URI into the app. {selected.redirectFieldNote}
+              <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+                <input style={styles.input} readOnly value={selected.redirectUri} onFocus={(e) => e.target.select()} />
+                <button style={styles.secondaryBtn} onClick={copyRedirectUri}>{copied ? 'Copied!' : 'Copy'}</button>
+              </div>
+            </li>
+            <li>
+              Set these variables in the backend .env, then restart the backend:
+              <ul style={{ paddingLeft: 18, marginTop: 6 }}>
+                {selected.vars.map((v) => (
+                  <li key={v.name} style={{ color: v.present ? '#86efac' : '#fca5a5' }}>
+                    {v.present ? '✓' : '✗'} {v.name} {v.present ? '' : '— missing'}
+                  </li>
+                ))}
+              </ul>
+            </li>
+            <li>Connect below and approve the consent screen as the account owner.</li>
+          </ol>
+          <button
+            style={styles.primaryBtn}
+            disabled={!selected.configured}
+            onClick={() => onConnect?.(selected.connectId)}
+            title={selected.configured ? '' : 'Set the missing variables and restart the backend first'}
+          >
+            {selected.configured ? `Connect ${selected.name}` : 'Connect (waiting on missing variables)'}
+          </button>
+          {!selected.configured && (
+            <p style={{ color: '#94a3b8', fontSize: 13, marginTop: 8 }}>
+              The wizard cannot set these for you — edit the backend .env on the machine running HiSocial,
+              restart the backend, and this page will pick up the change.
+            </p>
+          )}
         </div>
       )}
     </div>

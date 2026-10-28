@@ -41,7 +41,7 @@ router.get('/me', requireAuth, async (req, res) => {
   const db = req.app.locals.db;
   try {
     const accounts = await db.query(
-      `SELECT platform, platform_username, platform_display_name, platform_avatar_url, 
+      `SELECT id, platform, platform_username, platform_display_name, platform_avatar_url, 
        is_active, connected_at, token_expires_at
        FROM social_accounts WHERE user_id=$1 AND is_active=true`,
       [req.user.id]

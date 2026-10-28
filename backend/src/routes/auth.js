@@ -1,4 +1,5 @@
 const express = require('express');
+const { encryptToken } = require('../utils/tokenCrypto');
 const passport = require('passport');
 const { encodeOauthState, decodeOauthState, getOauthLinkedUserId } = require('../utils/oauthState');
 const { isGoogleConfigured, GOOGLE_SCOPES } = require('../utils/googleLogin');
@@ -157,7 +158,7 @@ router.get('/youtube/callback', async (req, res) => {
        access_token=$5, refresh_token=CASE WHEN $6 IS NULL THEN social_accounts.refresh_token ELSE $6 END,
        token_expires_at=$7, scope=$8,
        platform_username=$3, platform_display_name=$4, updated_at=NOW()`,
-      [user.id, channelId, channelTitle, channelTitle, accessToken, tokens.refresh_token || null, expiresAt, tokens.scope || null]
+      [user.id, channelId, channelTitle, channelTitle, encryptToken(accessToken), tokens.refresh_token ? encryptToken(tokens.refresh_token) : null, expiresAt, tokens.scope || null]
     );
 
     return finishOAuth(req, res, user, 'youtube');
@@ -233,7 +234,7 @@ router.get('/tiktok/callback', async (req, res) => {
        token_expires_at=$8, scope=$9,
        platform_username=$3, platform_display_name=$4, platform_avatar_url=$5, updated_at=NOW()`,
       [user.id, creator.open_id, creator.display_name || creator.open_id, creator.display_name || creator.open_id,
-       creator.avatar_url || null, accessToken, tokens.refresh_token || null, expiresAt, tokens.scope || null]
+       creator.avatar_url || null, encryptToken(accessToken), tokens.refresh_token ? encryptToken(tokens.refresh_token) : null, expiresAt, tokens.scope || null]
     );
 
     return finishOAuth(req, res, user, 'tiktok');
@@ -399,7 +400,7 @@ router.get('/linkedin-org/callback', async (req, res) => {
          platform_username=$3,
          platform_display_name=$4,
          updated_at=NOW()`,
-        [req.user.id, org.id, org.vanityName || org.id, orgName, null, accessToken, grantedScope || null]
+        [req.user.id, org.id, org.vanityName || org.id, orgName, null, encryptToken(accessToken), grantedScope || null]
       );
     }
 
@@ -513,7 +514,7 @@ router.get('/linkedin/callback', async (req, res) => {
         linkedInTargetUsername,
         linkedInTargetDisplayName,
         profile.picture || null,
-        accessToken,
+        encryptToken(accessToken),
         grantedScope || null
       ]
     );
@@ -682,7 +683,7 @@ router.get('/instagram/callback', async (req, res) => {
          access_token=$6, token_expires_at=$7, platform_user_id=$2, platform_username=$3,
          platform_display_name=$4, platform_avatar_url=$5, updated_at=NOW()`,
         [user.id, igAccount.id, igAccount.username, igAccount.username,
-         igAccount.profile_picture_url || null, pageToken, tokenExpiresAt]
+         igAccount.profile_picture_url || null, encryptToken(pageToken), tokenExpiresAt]
       );
 
       return finishOAuth(req, res, user, 'instagram');
@@ -817,7 +818,7 @@ router.post('/instagram/confirm', async (req, res) => {
        access_token=$6, token_expires_at=$7, platform_user_id=$2, platform_username=$3,
        platform_display_name=$4, platform_avatar_url=$5, updated_at=NOW()`,
       [user.id, igAccount.id, igAccount.username, igAccount.username,
-       igAccount.profile_picture_url || null, pageToken, confirmTokenExpiresAt]
+       igAccount.profile_picture_url || null, encryptToken(pageToken), confirmTokenExpiresAt]
     );
 
     // Clear legacy session data if present
@@ -892,7 +893,7 @@ router.get('/pinterest/callback', async (req, res) => {
       `INSERT INTO social_accounts (user_id, platform, platform_user_id, platform_username, access_token)
        VALUES ($1,'pinterest',$2,$3,$4)
        ON CONFLICT (user_id, platform, platform_user_id) DO UPDATE SET access_token=$4, updated_at=NOW()`,
-      [user.id, profile.username, profile.username, access_token]
+      [user.id, profile.username, profile.username, encryptToken(access_token)]
     );
 
     req.login(user, (err) => {

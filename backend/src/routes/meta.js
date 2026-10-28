@@ -13,6 +13,7 @@
 // An already-expired Facebook token also cannot be
 // exchanged; that case reports needs_reconnect too.
 const express = require('express');
+const { encryptToken, decryptToken } = require('../utils/tokenCrypto');
 const router = express.Router();
 const { exchangeForLongLivedToken, tokenStatus, canAttemptRefresh } = require('../utils/metaTokens');
 
@@ -70,7 +71,7 @@ router.post('/refresh', requireProfile, async (req, res) => {
     let exchanged;
     try {
       exchanged = await exchangeForLongLivedToken({
-        token: account.access_token,
+        token: decryptToken(account.access_token),
         appId: process.env.FACEBOOK_APP_ID,
         appSecret: process.env.FACEBOOK_APP_SECRET,
       });
@@ -82,7 +83,7 @@ router.post('/refresh', requireProfile, async (req, res) => {
     }
     await db.query(
       'UPDATE social_accounts SET access_token = $1, token_expires_at = $2, updated_at = NOW() WHERE id = $3',
-      [exchanged.accessToken, exchanged.expiresAt, account.id],
+      [encryptToken(exchanged.accessToken), exchanged.expiresAt, account.id],
     );
     res.json({ refreshed: true, status: tokenStatus(exchanged.expiresAt), expiresAt: exchanged.expiresAt });
   } catch (e) {

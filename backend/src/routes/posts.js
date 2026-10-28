@@ -1,4 +1,5 @@
 const express = require('express');
+const { encryptToken, decryptToken } = require('../utils/tokenCrypto');
 const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
@@ -591,7 +592,7 @@ router.post('/', requireAuth, async (req, res) => {
     );
 
     const tokens = {};
-    tokensResult.rows.forEach(r => { tokens[r.platform] = r; });
+    tokensResult.rows.forEach(r => { r.access_token = decryptToken(r.access_token); r.refresh_token = decryptToken(r.refresh_token); tokens[r.platform] = r; });
 
     // Phase 7: every stored linkedin_page row (one per
     // admin'd org), not just the one the tokens map kept.
@@ -630,7 +631,7 @@ router.post('/', requireAuth, async (req, res) => {
         `SELECT * FROM custom_platforms WHERE user_id=$1 AND is_active=true`,
         [req.user.id]
       );
-      for (const row of customResult.rows) customPlatforms[customPlatformId(row.slug)] = row;
+      for (const row of customResult.rows) { row.api_key = decryptToken(row.api_key); customPlatforms[customPlatformId(row.slug)] = row; }
     }
 
     // Create post record
@@ -767,7 +768,7 @@ async function refreshYouTubeTokenIfNeeded(db, userId, tokenRow) {
     await db.query(
       `UPDATE social_accounts SET access_token=$1, token_expires_at=$2, updated_at=NOW()
        WHERE user_id=$3 AND platform='youtube' AND platform_user_id=$4`,
-      [refreshed.accessToken, refreshed.expiresAt, userId, tokenRow.platform_user_id]
+      [encryptToken(refreshed.accessToken), refreshed.expiresAt, userId, tokenRow.platform_user_id]
     );
     return { ...tokenRow, access_token: refreshed.accessToken, token_expires_at: refreshed.expiresAt };
   } catch (e) {
@@ -818,7 +819,7 @@ async function refreshTikTokTokenIfNeeded(db, userId, tokenRow) {
       `UPDATE social_accounts SET access_token=$1, refresh_token=CASE WHEN $2 IS NULL THEN refresh_token ELSE $2 END,
        token_expires_at=$3, updated_at=NOW()
        WHERE user_id=$4 AND platform='tiktok' AND platform_user_id=$5`,
-      [refreshed.accessToken, refreshed.refreshToken, refreshed.expiresAt, userId, tokenRow.platform_user_id]
+      [encryptToken(refreshed.accessToken), refreshed.refreshToken ? encryptToken(refreshed.refreshToken) : null, refreshed.expiresAt, userId, tokenRow.platform_user_id]
     );
     return {
       ...tokenRow,
@@ -1801,7 +1802,7 @@ async function refreshRedditTokenIfNeeded(db, userId, tokenRow) {
     await db.query(
       `UPDATE social_accounts SET access_token=$1, token_expires_at=$2, updated_at=NOW()
        WHERE user_id=$3 AND platform='reddit' AND platform_user_id=$4`,
-      [refreshed.accessToken, refreshed.expiresAt, userId, tokenRow.platform_user_id]
+      [encryptToken(refreshed.accessToken), refreshed.expiresAt, userId, tokenRow.platform_user_id]
     );
     return { ...tokenRow, access_token: refreshed.accessToken, token_expires_at: refreshed.expiresAt };
   } catch (e) {
@@ -1856,7 +1857,7 @@ async function publishStoredPost(pool, post) {
   );
 
   const tokens = {};
-  tokensResult.rows.forEach((row) => { tokens[row.platform] = row; });
+  tokensResult.rows.forEach((row) => { row.access_token = decryptToken(row.access_token); row.refresh_token = decryptToken(row.refresh_token); tokens[row.platform] = row; });
 
   // Phase 7: every stored linkedin_page row, as above.
   let linkedInPageAccounts = [];
@@ -1893,7 +1894,7 @@ async function publishStoredPost(pool, post) {
       `SELECT * FROM custom_platforms WHERE user_id=$1 AND is_active=true`,
       [post.user_id]
     );
-    for (const row of customResult.rows) customPlatforms[customPlatformId(row.slug)] = row;
+    for (const row of customResult.rows) { row.api_key = decryptToken(row.api_key); customPlatforms[customPlatformId(row.slug)] = row; }
   }
 
   const results = await Promise.allSettled(

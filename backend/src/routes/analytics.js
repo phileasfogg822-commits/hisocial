@@ -1,4 +1,5 @@
 const express = require('express');
+const { decryptToken } = require('../utils/tokenCrypto');
 const axios = require('axios');
 
 const router = express.Router();
@@ -131,7 +132,7 @@ router.get('/engagement', requireAuth, async (req, res) => {
       [req.user.id]
     );
 
-    const tokens = new Map(tokenRes.rows.map((row) => [row.platform, row.access_token]));
+    const tokens = new Map(tokenRes.rows.map((row) => [row.platform, decryptToken(row.access_token)]));
 
     let facebookPageTokenMap = new Map();
     const facebookToken = tokens.get('facebook');

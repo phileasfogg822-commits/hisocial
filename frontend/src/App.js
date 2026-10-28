@@ -4336,6 +4336,48 @@ function SettingsView({ platforms, connectedPlatforms, connectedAccountDetails, 
       <MetaTokenHealth onConnect={onConnect} />
 
       <div style={styles.settingsCard}>
+        <h3 style={styles.settingsSubtitle}>Backup & Restore</h3>
+        <p style={{ color: '#64748b', fontSize: 12, lineHeight: 1.6, margin: '0 0 10px' }}>
+          Export downloads your posts, groups, templates, assignments, monetization entries, and
+          custom platforms as JSON. Secrets are never exported — account tokens and custom API keys
+          are omitted, so reconnect accounts and re-enter keys after a restore. Import inserts
+          rows that do not exist yet and never overwrites existing ones.
+        </p>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button style={styles.secondaryBtn} onClick={async () => {
+            try {
+              const res = await axios.get(`${API}/api/backup/export`, { responseType: 'blob' });
+              const url = window.URL.createObjectURL(new Blob([res.data], { type: 'application/json' }));
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = 'hisocial-backup.json';
+              a.click();
+              window.URL.revokeObjectURL(url);
+              onNotify?.('Backup downloaded');
+            } catch (e) {
+              onError?.('Failed to export backup');
+            }
+          }}>Export backup</button>
+          <label style={{ ...styles.secondaryBtn, cursor: 'pointer' }}>
+            Import backup
+            <input type="file" accept="application/json" style={{ display: 'none' }} onChange={async (e) => {
+              const file = e.target.files?.[0];
+              if (!file) return;
+              try {
+                const text = await file.text();
+                const res = await axios.post(`${API}/api/backup/import`, JSON.parse(text));
+                const parts = Object.entries(res.data?.report || {}).map(([t, r]) => `${t}: ${r.inserted} new, ${r.skipped} skipped`);
+                onNotify?.(`Backup imported — ${parts.join('; ')}`);
+              } catch (err) {
+                onError?.(err.response?.data?.error || 'Failed to import backup');
+              }
+              e.target.value = '';
+            }} />
+          </label>
+        </div>
+      </div>
+
+      <div style={styles.settingsCard}>
         <h3 style={styles.settingsSubtitle}>Connected Platforms</h3>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {platforms.map(p => {
@@ -4361,6 +4403,18 @@ function SettingsView({ platforms, connectedPlatforms, connectedAccountDetails, 
                 {connected ? (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                     <span style={{ color: '#4ade80', fontSize: 13 }}>● Connected</span>
+                    {['facebook', 'youtube', 'tiktok', 'reddit'].includes(p.id) && accountInfo?.id && (
+                      <button style={styles.secondaryBtn} onClick={async () => {
+                        try {
+                          await axios.post(`${API}/api/tokens/rotate/${accountInfo.id}`, {});
+                          onNotify?.(`${meta.name} token rotated and stored encrypted`);
+                        } catch (e) {
+                          onError?.(e.response?.data?.error || 'Token rotation failed');
+                        }
+                      }}>
+                        Rotate token
+                      </button>
+                    )}
                     <button style={styles.disconnectBtn} onClick={() => onDisconnect(p.id)}>
                       Disconnect
                     </button>

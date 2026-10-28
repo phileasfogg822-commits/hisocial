@@ -39,7 +39,7 @@ module.exports = (passport, pool) => {
           `UPDATE social_accounts SET access_token=$1, refresh_token=$2, token_expires_at=$3, 
            platform_username=$4, platform_display_name=$5, platform_avatar_url=$6, updated_at=NOW()
            WHERE platform=$7 AND platform_user_id=$8`,
-          [accessToken, refreshToken, tokenExpiry,
+          [encryptToken(accessToken), refreshToken ? encryptToken(refreshToken) : null, tokenExpiry,
            profile.username || profile.displayName,
            profile.displayName,
            profile.photos?.[0]?.value,
@@ -69,7 +69,7 @@ module.exports = (passport, pool) => {
            profile.username || profile.displayName,
            profile.displayName,
            profile.photos?.[0]?.value,
-           accessToken, refreshToken, tokenExpiry]
+           encryptToken(accessToken), refreshToken ? encryptToken(refreshToken) : null, tokenExpiry]
         );
       }
 
@@ -231,6 +231,6 @@ async function linkAccount(pool, userId, platform, profile, accessToken, refresh
      profile.username || profile.displayName,
      profile.displayName,
      profile.photos?.[0]?.value,
-     accessToken, refreshToken, tokenExpiry]
+     encryptToken(accessToken), refreshToken ? encryptToken(refreshToken) : null, tokenExpiry]
   );
 }

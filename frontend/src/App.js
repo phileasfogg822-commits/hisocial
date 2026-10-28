@@ -3,6 +3,7 @@ import axios from 'axios';
 import { buildStyledImagePrompt } from './utils/ImagePromptStyleGuide';
 import { generateMultipleTopics } from './utils/TopicEngine';
 import ComposeAI from './components/ComposeAI';
+import { loadDrafts, saveDraft, deleteDraft } from './utils/offlineDrafts';
 
 const resolveApiBase = () => {
   const configured = String(process.env.REACT_APP_API_URL || '').trim();
@@ -173,6 +174,20 @@ export default function App() {
   const [platforms, setPlatforms] = useState([]);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState('compose'); // compose | history | settings
+  // Phase 26: offline indicator + draft handoff to Compose.
+  const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
+  const [pendingDraft, setPendingDraft] = useState(null);
+
+  useEffect(() => {
+    const goOnline = () => setIsOnline(true);
+    const goOffline = () => setIsOnline(false);
+    window.addEventListener('online', goOnline);
+    window.addEventListener('offline', goOffline);
+    return () => {
+      window.removeEventListener('online', goOnline);
+      window.removeEventListener('offline', goOffline);
+    };
+  }, []);
   const [theme, setTheme] = useState(() => localStorage.getItem('sh_theme') || 'dark');
   useEffect(() => {
     const vars = THEMES[theme] || THEMES.dark;
@@ -587,6 +602,14 @@ export default function App() {
               loadHistory();
             }}
             onError={(msg) => notify(msg, 'error')}
+            pendingDraft={pendingDraft}
+            onDraftApplied={() => setPendingDraft(null)}
+          />
+        ) : view === 'drafts' ? (
+          <DraftsView
+            onLoadDraft={(draft) => { setPendingDraft(draft); setView('compose'); }}
+            onNotify={(msg) => notify(msg)}
+            onError={(msg) => notify(msg, 'error')}
           />
         ) : view === 'schedule' ? (
           <ScheduleView
@@ -879,6 +902,47 @@ function MonetizationView({ onNotify, onError }) {
                 onError?.(e.response?.data?.error || 'Failed to delete entry');
               }
             }}>Delete</button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DraftsView({ onLoadDraft, onNotify, onError }) {
+  const [drafts, setDrafts] = useState([]);
+
+  const load = useCallback(() => {
+    setDrafts(loadDrafts());
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  return (
+    <div>
+      <h2 style={styles.sectionTitle}>Offline Drafts</h2>
+      <p style={{ color: '#666', fontSize: 13, lineHeight: 1.7, margin: '0 0 16px' }}>
+        Drafts live in this browser only — they are never sent to the server, so they work offline
+        and are not synced to another device. Load one into Compose to post or schedule it; delete
+        what you no longer need.
+      </p>
+      <button style={styles.secondaryBtn} onClick={load}>Refresh</button>
+      <div style={{ display: 'grid', gap: 12, marginTop: 16 }}>
+        {drafts.length === 0 ? (
+          <span style={styles.targetHint}>No drafts yet — write something in Compose and save it locally.</span>
+        ) : drafts.map((draft) => (
+          <div key={draft.id} style={styles.settingsCard}>
+            <div style={{ color: '#ddd', fontSize: 14, lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{draft.content || '(no text)'}</div>
+            <div style={{ color: '#888', fontSize: 12, marginTop: 8 }}>
+              {draft.updatedAt ? new Date(draft.updatedAt).toLocaleString() : ''}
+              {draft.platforms?.length ? ` · Platforms: ${draft.platforms.join(', ')}` : ''}
+              {draft.mediaUrls?.length ? ` · Media: ${draft.mediaUrls.length}` : ''}
+              {draft.language ? ` · ${draft.language}` : ''}
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+              <button style={styles.primaryBtn} onClick={() => { onLoadDraft?.(draft); onNotify?.('Draft loaded into Compose'); }}>Load into Compose</button>
+              <button style={styles.secondaryBtn} onClick={() => { deleteDraft(draft.id); load(); }}>Delete</button>
+            </div>
           </div>
         ))}
       </div>
@@ -1226,7 +1290,9 @@ function ComposeView({
   onConnect,
   onNotify,
   onPost,
-  onError
+  onError,
+  pendingDraft,
+  onDraftApplied
 }) {
   const [studioTab, setStudioTab] = useState('compose');
   const [selectedPlatforms, setSelectedPlatforms] = useState([]);
@@ -1256,6 +1322,20 @@ function ComposeView({
   const [category, setCategory] = useState('');
   const [topic, setTopic] = useState('');
   const [generatedText, setGeneratedText] = useState('');
+
+  // Phase 26: apply a draft loaded from the Drafts view.
+  useEffect(() => {
+    if (!pendingDraft) return;
+    setGeneratedText(pendingDraft.content || '');
+    setComposeHeading(pendingDraft.heading || '');
+    setComposeCaptionHashtags(pendingDraft.hashtags || '');
+    setSelectedPlatforms(pendingDraft.platforms || []);
+    syncComposeMediaUrls(pendingDraft.mediaUrls || []);
+    setComposeLanguage(pendingDraft.language || 'en');
+    setComposeFormat(pendingDraft.format || 'post');
+    onDraftApplied?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingDraft]);
   const [composeHeading, setComposeHeading] = useState('');
   const [composeCaptionHashtags, setComposeCaptionHashtags] = useState('');
   const [selectedText, setSelectedText] = useState('');
@@ -2668,6 +2748,20 @@ function ComposeView({
               </button>
               <button style={styles.primaryBtn} onClick={scheduleSingleCompose} disabled={schedulingId === 'compose'}>
                 {schedulingId === 'compose' ? 'Scheduling...' : 'Schedule Selected Compose Post'}
+              </button>
+              <button style={styles.secondaryBtn} onClick={() => {
+                saveDraft({
+                  content: generatedText,
+                  heading: composeHeading,
+                  hashtags: composeCaptionHashtags,
+                  platforms: selectedPlatforms,
+                  mediaUrls: composeMediaUrls,
+                  language: composeLanguage,
+                  format: composeFormat,
+                });
+                onNotify?.('Draft saved locally — find it under Drafts, even offline');
+              }}>
+                Save draft locally
               </button>
             </div>
           </div>
@@ -4708,9 +4802,15 @@ function Sidebar({ user, accounts, view, setView, onSwitchAccount, onLogout, con
 
       {user && (
         <>
+          {!isOnline && (
+            <div style={{ background: '#f59e0b', color: '#111', fontSize: 13, fontWeight: 700, padding: '8px 14px', textAlign: 'center' }}>
+              You are offline — the app shell is cached, and anything you write can be saved as a local draft until you are back online.
+            </div>
+          )}
           <nav style={styles.nav}>
             {[
               { id: 'compose', label: 'Compose', icon: '✏️' },
+              { id: 'drafts', label: 'Drafts', icon: '🗒️' },
               { id: 'schedule', label: 'Schedule', icon: '📝' },
               { id: 'autopilot', label: 'Auto Pilot', icon: '🤖' },
               { id: 'calendar', label: 'Calendar', icon: '📅' },

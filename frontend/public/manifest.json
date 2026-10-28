@@ -1,6 +1,7 @@
 {
-  "short_name": "SocialHub",
-  "name": "SocialHub - All Platforms in One",
+  "short_name": "HiSocial",
+  "name": "HiSocial - All Platforms in One",
+  "description": "HiSocial: compose, schedule, and publish across your social platforms, with AI generation and analytics.",
   "icons": [
     {
       "src": "favicon.ico",

@@ -104,3 +104,15 @@ PR base: `phase-27-apk-client`.
   time of this gate-doc write; Phase 28 is accepted
   ONLY on a green run on the exact head, including
   the new tests.
+
+## CI verdict (added after the run)
+
+- Run `40648196767` on head `e8f7458` (the code
+  head): **SUCCESS** — all steps green, including
+  Test backend and the frontend Docker build.
+  **Phase 28 ACCEPTED on `e8f7458`.** Draft PR #28
+  creation is being retried (the connector call
+  died twice on runtime restarts before applying;
+  verified against the open-PR list — no duplicate
+  was created). The confirmatory run on this gate
+  head follows the Phase 1–27 pattern.

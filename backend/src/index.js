@@ -50,6 +50,14 @@ app.use('/uploads', (req, res, next) => {
 // Apply helmet AFTER static routes
 app.use(helmet({ crossOriginEmbedderPolicy: false }));
 app.use(morgan('dev'));
+// Phase 28: baseline security headers (no new deps).
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  next();
+});
+
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
@@ -118,6 +126,8 @@ app.use('/api/alerts', require('./routes/alerts'));
 app.use('/api/monetization', require('./routes/monetization'));
 app.use('/api/reports', require('./routes/reports'));
 app.use('/api/client', require('./routes/client'));
+app.use('/api/backup', require('./routes/backup'));
+app.use('/api/tokens', require('./routes/tokenRotation'));
 app.use('/api/media', require('./routes/media'));
 app.use('/api/autopilot', require('./routes/autopilot'));
 app.use('/api/pple', require('./routes/pple'));

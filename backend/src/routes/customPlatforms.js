@@ -3,6 +3,7 @@
 // has_api_key. Keys are stored like the other platforms'
 // tokens (see utils/customPlatforms.js security note).
 const express = require('express');
+const { encryptToken } = require('../utils/tokenCrypto');
 const { validateCustomPlatform } = require('../utils/customPlatforms');
 
 const requireProfile = (req, res, next) => {
@@ -50,7 +51,7 @@ router.post('/', requireProfile, async (req, res) => {
     const result = await db.query(
       `INSERT INTO custom_platforms (user_id, name, slug, tier, base_url, post_path, api_key, auth_type, auth_header)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
-      [req.user.id, p.name, p.slug, p.tier, p.base_url, p.post_path, apiKey, p.auth_type, p.auth_header]
+      [req.user.id, p.name, p.slug, p.tier, p.base_url, p.post_path, apiKey ? encryptToken(apiKey) : null, p.auth_type, p.auth_header]
     );
     res.status(201).json(mask(result.rows[0]));
   } catch (e) {
@@ -70,7 +71,7 @@ router.put('/:id', requireProfile, async (req, res) => {
       `UPDATE custom_platforms SET name=$1, slug=$2, tier=$3, base_url=$4, post_path=$5,
          api_key=CASE WHEN $6 THEN $7 ELSE api_key END, auth_type=$8, auth_header=$9, updated_at=NOW()
        WHERE id=$10 AND user_id=$11 AND is_active=true RETURNING *`,
-      [p.name, p.slug, p.tier, p.base_url, p.post_path, hasNewKey, req.body.api_key || null, p.auth_type, p.auth_header, req.params.id, req.user.id]
+      [p.name, p.slug, p.tier, p.base_url, p.post_path, hasNewKey, req.body.api_key ? encryptToken(req.body.api_key) : null, p.auth_type, p.auth_header, req.params.id, req.user.id]
     );
     if (!result.rows[0]) return res.status(404).json({ error: 'Custom platform not found' });
     res.json(mask(result.rows[0]));

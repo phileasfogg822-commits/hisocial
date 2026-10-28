@@ -50,13 +50,24 @@ app.use('/uploads', (req, res, next) => {
 // Apply helmet AFTER static routes
 app.use(helmet({ crossOriginEmbedderPolicy: false }));
 app.use(morgan('dev'));
-// Phase 28: baseline security headers (no new deps).
-app.use((req, res, next) => {
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
-  res.setHeader('Referrer-Policy', 'no-referrer');
-  next();
-});
+// Phase 29 audit finding: the Phase 28 hand-rolled
+// headers duplicated helmet, which this codebase
+// already applies above with defaults that include
+// nosniff, same-origin framing, and no-referrer.
+// The duplicate middleware is removed here so there
+// is one source of headers, not two.
+// (Phase 28's "no CSP" note was misplaced: helmet's
+// default CSP applies to API JSON responses, and the
+// frontend HTML is served by the frontend container,
+// so it never governed the React app's inline styles.)
+
+// Phase 29: generous rate limit on auth routes only
+// (300 attempts per 15 minutes per IP) — enough to
+// blunt credential stuffing, far above any human
+// login/OAuth retry pattern.
+const rateLimit = require('express-rate-limit');
+const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 300, standardHeaders: true, legacyHeaders: false });
+app.use('/auth', authLimiter);
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));

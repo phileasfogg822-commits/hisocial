@@ -52,7 +52,10 @@ describe('security wiring (static)', () => {
   it('encryption is wired at writes and reads, headers + routes mounted', () => {
     assert.match(authJs, /encryptToken\(accessToken\)/);
     assert.match(postsJs, /decryptToken\(r\.access_token\)/);
-    assert.match(indexJs, /X-Content-Type-Options/);
+    // Phase 29: the Phase 28 hand-rolled headers were
+    // removed as duplicates of helmet (applied once
+    // above); headers now come from helmet alone.
+    assert.equal((indexJs.match(/app\.use\(helmet\(/g) || []).length, 1);
     assert.match(indexJs, /api\/backup/);
     assert.match(indexJs, /api\/tokens/);
   });

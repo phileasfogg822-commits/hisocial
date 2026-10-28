@@ -15,7 +15,7 @@ Post to Facebook, Instagram, LinkedIn, Twitter/X, Reddit, and Pinterest from one
 ### Step 1: Get the code on your computer
 Download this repo as a ZIP, or clone it:
 ```bash
-git clone https://github.com/hrperalglobalcity-spec/hisocial.git
+git clone https://github.com/phileasfogg822-commits/hisocial.git
 cd hisocial
 ```
 
@@ -37,6 +37,18 @@ Open `.env` in a text editor (Notepad, TextEdit, VS Code) and fill in:
 Leave the other values as-is for now. Save the file.
 
 > 🔒 **Never upload or share the `.env` file.** It contains your passwords.
+
+## ✅ Roadmap complete (Phases 0–29)
+
+Development is finished: foundations, all platform
+connections, AI generation, scheduling, analytics
+and money, PWA + APK client, and security
+hardening — all validated in GitHub Actions. See
+[`docs/ROADMAP_COMPLETE.md`](docs/ROADMAP_COMPLETE.md)
+for the phase table and [`docs/VPS_MIGRATION.md`](docs/VPS_MIGRATION.md)
+for the owner checklist that moves the finished
+product to the VPS (tunnel, domain, fresh secrets,
+re-OAuth, live verification).
 
 ### Step 3: Start the app
 ```bash

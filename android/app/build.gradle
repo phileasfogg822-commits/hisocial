@@ -1,0 +1,47 @@
+// Phase 27: HiSocial APK shell — app module.
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+}
+
+android {
+    namespace 'com.hisocial.app'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.hisocial.app"
+        minSdk 24
+        targetSdk 34
+        versionCode 1
+        versionName "1.0.0"
+        // Point this at the backend before building.
+        // Dev (emulator): http://10.0.2.2:4000
+        // Final VPS migration: the tunnel domain, e.g.
+        // https://hisocial.example.com
+        buildConfigField "String", "HISOCIAL_BASE_URL", '"http://10.0.2.2:4000"'
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+    buildFeatures {
+        buildConfig true
+    }
+}
+
+dependencies {
+    implementation 'androidx.core:core-ktx:1.12.0'
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'com.google.android.material:material:1.11.0'
+    implementation 'androidx.webkit:webkit:1.9.0'
+}

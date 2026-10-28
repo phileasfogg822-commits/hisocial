@@ -1,0 +1,21 @@
+// Phase 27: HiSocial Android client (WebView shell).
+// The APK is a thin shell around the same backend
+// the PWA uses — no second app, no duplicated
+// features. Point HISOCIAL_BASE_URL at the backend
+// (see app/build.gradle) and build in Android Studio.
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+rootProject.name = "HiSocial"
+include ':app'

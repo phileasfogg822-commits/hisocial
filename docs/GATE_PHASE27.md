@@ -74,3 +74,12 @@ Branch: `phase-27-apk-client`, cut from Phase
   time of this gate-doc write; Phase 27 is accepted
   ONLY on a green run on the exact head, including
   the new tests.
+
+## CI verdict (added after the run)
+
+- Run `40642772463` on head `dc66fd6` (the code
+  head): **SUCCESS** — all steps green, including
+  Test backend and the frontend Docker build.
+  **Phase 27 ACCEPTED on `dc66fd6`.** Draft PR #27
+  created and verified. The confirmatory run on
+  this gate head follows the Phase 1–26 pattern.

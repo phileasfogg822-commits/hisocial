@@ -40,7 +40,7 @@ live proof; CI proof is test + Docker-build proof.
 | 26 | PWA polish + offline drafts | 596cc17 | 044e5ce | 200 | #26 draft |
 | 27 | APK client | dc66fd6 | 13552aa | 203 | #27 draft |
 | 28 | Security + backup + rotation | e8f7458 | 2506a4d | 209 | #28 draft |
-| 29 | Final gate + docs | — | — | 212 | #29 draft |
+| 29 | Final gate + docs | 56615ad | 9c91e52 | 212 | #29 draft |
 
 Blocks: Foundations 0–4, Connections 5–11,
 AI 12–16, Scheduling 17–20, Analytics/money

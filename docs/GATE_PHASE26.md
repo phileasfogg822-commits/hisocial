@@ -71,3 +71,14 @@ Phase 25 closed head `714636c`. PR base:
   time of this gate-doc write; Phase 26 is accepted
   ONLY on a green run on the exact head, including
   the new tests.
+
+## CI verdict (added after the run)
+
+- Run `40638858470` on head `596cc17` (the code
+  head): **SUCCESS** — all steps green, including
+  Test backend and the frontend Docker build
+  (which is also the compile proof for the App.js
+  JSX changes). **Phase 26 ACCEPTED on `596cc17`.**
+  Draft PR #26 created and verified. The
+  confirmatory run on this gate head follows the
+  Phase 1–25 pattern.

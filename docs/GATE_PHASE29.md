@@ -122,3 +122,34 @@ Branch: `phase-29-final-gate`, cut from Phase
 - The VPS migration itself is NOT part of this
   phase and has not started: no tunnel, no domain,
   no live instance exists yet.
+
+## CI verdict (added after the run)
+
+- First head `8d014e1` FAILED twice at the same
+  step ("Wait for services to be ready", backend
+  never answering /health): push run #119
+  attempt 2 and PR run #120 attempt 2, both
+  failure. Two identical failures ruled out a
+  flake.
+- Root cause (found by audit, not by re-running):
+  the Phase 29 `.env.example` completion wrote
+  `DATABASE_URL` with password `socialhub`, but
+  the compose Postgres service runs with
+  `socialhub_secret` and the backend entry
+  interpolates `${DATABASE_URL}` from that file.
+  CI copies `.env.example` to `.env`, so the
+  wrong password overrode the correct default —
+  the backend failed database auth on every
+  start and never became healthy. Unit tests
+  never caught it (no database) and the Docker
+  build passed (the image builds fine).
+- Fix head `56615ad`: correct password with a
+  comment tying it to `POSTGRES_PASSWORD`, plus
+  the missing `INSTAGRAM_APP_SECRET` line. All
+  other added values were verified against their
+  compose defaults — this was the only mismatch.
+- Push run #121 (`40750471977`) on `56615ad`:
+  **SUCCESS**. PR run #122 (`40750484706`) on
+  `56615ad`: **SUCCESS**. **Phase 29 ACCEPTED
+  on `56615ad`.** The confirmatory run on this
+  gate head follows the Phase 1–28 pattern.
